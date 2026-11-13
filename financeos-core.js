@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const DATE_RE = /^\\d{4}-\\d{2}-\\d{2}$/;
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   const TRANSFER_CATEGORIES = Object.freeze(['savings', 'investment', 'sacco', 'umworo', 'momo']);
 
   function localDateKey(value) {
@@ -78,7 +78,7 @@
 
   function csvCell(value, protectFormula = true) {
     let text = String(value == null ? '' : value);
-    if (protectFormula && /^[\\t\\r\\n ]*[=+@-]/.test(text)) text = "'" + text;
+    if (protectFormula && /^[=+@-]/.test(text.trimStart())) text = "'" + text;
     return '"' + text.replace(/"/g, '""') + '"';
   }
 
