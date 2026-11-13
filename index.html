@@ -21036,8 +21036,8 @@ function openCallSupportModal() {
   var body = '<div style="text-align:center;padding:10px 0 4px;">'
     + '<div style="font-size:40px;margin-bottom:12px;">📞</div>'
     + '<div style="font-size:16px;font-weight:700;margin-bottom:4px;">Support Line</div>'
-    + '<div style="font-size:12px;color:var(--textdim);margin-bottom:16px;">For urgent issues, reach us via email. In-app AI Advisor can resolve most questions instantly.</div>'
-    + '<div style="padding:14px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:12px;font-size:12px;color:var(--textmid);">💬 Fastest support: use the <strong>Email Support</strong> or <strong>AI Help Center</strong> below. Response within 24 hours.</div></div>';
+    + '<div style="font-size:12px;color:var(--textdim);margin-bottom:16px;">A support inbox is not connected in this build. The AI Advisor is also offline.</div>'
+    + '<div style="padding:14px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:12px;font-size:12px;color:var(--textmid);">Email and AI support are not connected. Messages entered in these forms are not sent.</div></div>';
   var footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-call\')">Close</button>'
     + '<button class="btn-primary" style="flex:2;" onclick="_closeModal(\'modal-call\');openEmailSupportModal()">✉️ Email Support</button>';
   _modal('modal-call', '📞 Contact Support', body, footer, 'var(--blue)');
@@ -21051,7 +21051,7 @@ function openEmailSupportModal() {
     + '<option>Billing Question</option><option>Feature Question</option><option>Security Concern</option><option>Other</option></select></div>'
     + '<div><label style="font-size:11px;color:var(--textdim);font-weight:600;display:block;margin-bottom:5px;">YOUR MESSAGE</label>'
     + '<textarea class="form-textarea" id="supportEmailBody" style="height:100px;" placeholder="Describe your issue in detail..."></textarea></div>'
-    + '<div style="font-size:11px;color:var(--textdim);">Typical response: <strong style="color:var(--green);">Under 24 hours</strong></div></div>';
+    + '<div style="font-size:11px;color:var(--gold);">No support inbox is configured. Your message will remain on this screen.</div></div>';
   var footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-email\')">Cancel</button>'
     + '<button class="btn-primary" style="flex:2;" onclick="sendSupportEmail()">Send Message</button>';
   _modal('modal-email', '✉️ Email Support', body, footer, 'var(--blue)');
