@@ -422,12 +422,25 @@
   }
 
   let renderQueued = false;
+  function renderFallbackIcons() {
+    document.querySelectorAll('i[data-lucide]').forEach(element => {
+      const wrapper = document.createElement('span');
+      wrapper.className = 'fos-lucide-icon';
+      wrapper.setAttribute('aria-hidden', 'true');
+      wrapper.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>';
+      element.replaceWith(wrapper);
+    });
+  }
+
   function scheduleLucideRender() {
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => {
       renderQueued = false;
-      if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
+      if (!window.lucide || typeof window.lucide.createIcons !== 'function') {
+        renderFallbackIcons();
+        return;
+      }
       try {
         window.lucide.createIcons();
       } catch (error) {
@@ -442,6 +455,7 @@
         } catch (error) {
           console.warn('[FinanceOS] Lucide fallback icon could not be rendered:', error);
         }
+        if (document.querySelector('i[data-lucide]')) renderFallbackIcons();
       }
     });
   }
