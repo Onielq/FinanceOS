@@ -202,17 +202,17 @@
     '\u{1F4AC}': 'message-circle',
     '\u{1F9EA}': 'test-tube',
     '\u{1F4A1}': 'lightbulb',
-    '\u2705': 'check-circle',
+    '\u2705': 'circle-check',
     '\u2713': 'check',
-    '\u26A0': 'alert-triangle',
+    '\u26A0': 'triangle-alert',
     '\u{1F6AB}': 'ban',
-    '\u274C': 'x-circle',
+    '\u274C': 'circle-x',
     '\u2715': 'x',
     '\u{1F680}': 'rocket',
     '\u{1F511}': 'key-round',
     '\u{1F6E1}': 'shield-check',
     '\u{1F514}': 'bell',
-    '\u{1F64F}': 'heart-handshake',
+    '\u{1F64F}': 'handshake',
     '\u{1F4B3}': 'credit-card',
     '\u{1F916}': 'bot',
     '\u2709': 'mail',
@@ -279,16 +279,16 @@
     '\u{1F9D3}': 'user-round',
     '\u{1F43B}': 'paw-print',
     '\u{1F402}': 'paw-print',
-    '\u{1F932}': 'hand-heart',
+    '\u{1F932}': 'handshake',
     '\u{1F54A}': 'bird',
     '\u{1F6E3}': 'route',
     '\u{1F3CE}': 'car-front',
     '\u{1F44B}': 'hand',
     '\u{1F9D8}': 'person-standing',
-    '\u{1F49D}': 'heart-handshake',
+    '\u{1F49D}': 'handshake',
     '\u{1F4FF}': 'circle-dot',
     '\u{1F61E}': 'frown',
-    '\u{1F615}': 'circle-help',
+    '\u{1F615}': 'circle-question-mark',
     '\u{1F60A}': 'smile',
     '\u{1F604}': 'smile',
     '\u{1F929}': 'star',
@@ -311,7 +311,7 @@
     '\u{1F36A}': 'cookie',
     '\u{1F91D}': 'handshake',
     '\u{1F6D1}': 'octagon-alert',
-    '\u{1F4A9}': 'circle-help'
+    '\u{1F4A9}': 'circle-question-mark'
   });
 
   const ICON_PREFIX = /^(\s*)(?:([\u{1F1E6}-\u{1F1FF}]{2})|([\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2713\u2714\u2715\u2716\u2795\u2796\u27A1](?:\uFE0F|\uFE0E)?(?:[\u{1F3FB}-\u{1F3FF}])?(?:\u200D[\u{1F000}-\u{1FAFF}\u2600-\u27BF](?:\uFE0F|\uFE0E)?)?))(\s*)/u;
@@ -393,6 +393,16 @@
         window.lucide.createIcons();
       } catch (error) {
         console.warn('[FinanceOS] Lucide icons could not be rendered:', error);
+      }
+      // If an icon name was removed or renamed by Lucide, never leave a blank slot.
+      const unresolved = document.querySelectorAll('i[data-lucide]');
+      if (unresolved.length) {
+        unresolved.forEach(element => element.setAttribute('data-lucide', 'circle'));
+        try {
+          window.lucide.createIcons();
+        } catch (error) {
+          console.warn('[FinanceOS] Lucide fallback icon could not be rendered:', error);
+        }
       }
     });
   }
