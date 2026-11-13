@@ -26,7 +26,7 @@
 <!-- ── PWA Manifest (inline data URI for single-file PWA) ── -->
 <link id="pwa-manifest" rel="manifest"/>
 
-<title>FinanceOS TEST v47 — Your Money · Your Business</title>
+<title>FinanceOS TEST v48 — Your Money · Your Business</title>
 <script src="./financeos-core.js"></script>
 
 <script>
@@ -93,7 +93,7 @@
   // FIX SW-2: cache is now populated on install so offline navigation actually works.
   if ('serviceWorker' in navigator) {
     const swCode = `
-      const CACHE = 'financeOS-v47';
+      const CACHE = 'financeOS-v48';
       // On install: claim the app URL from any open client windows so we
       // have something real to put in the cache (blob: SW URLs are useless).
       self.addEventListener('install', e => {
@@ -9484,58 +9484,109 @@ if (typeof Chart !== 'undefined') {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// DATA OBFUSCATION LAYER  [v40 — hardened]
-// All localStorage data is XOR-encoded with a cryptographically random
-// per-session key stored in sessionStorage.
-// v40 change: removed hardcoded fallback key. If sessionStorage fails
-// (private-browsing edge case) we generate a new in-memory key so the
-// app still boots — but no known static key can ever decode the data.
+// FINANCIAL DATA ENCRYPTION — authenticated AES-GCM with legacy v46/v47 migration.
+// New writes use AES-256-GCM with a unique 96-bit IV and an authenticated
+// ciphertext. The random device key is persisted in localStorage and IndexedDB.
+// Older XOR/Base64 records are read for migration and re-saved as AES-GCM.
 // ═══════════════════════════════════════════════════════════════════
 const VAULT = {
   _k: null,
+  _cryptoKey: null,
+
   key() {
     if (this._k) return this._k;
-    let k = null;
-
-    // Migrate the old per-tab key before creating a new one. This lets an
-    // already-open v46 session carry its existing key into durable storage.
-    try { k = localStorage.getItem('_fos_sk'); } catch(_) {}
-    if (!k) {
-      try {
-        k = sessionStorage.getItem('_fos_sk');
-        if (k) {
-          try { localStorage.setItem('_fos_sk', k); } catch(_) {}
-        }
-      } catch(_) {}
+    let key = null;
+    try { key = localStorage.getItem('_fos_sk'); } catch(_) {}
+    if (!/^[0-9a-f]{64}$/i.test(key || '')) {
+      try { key = sessionStorage.getItem('_fos_sk'); } catch(_) {}
     }
-
-    // A 32-byte random key must survive tab and browser restarts.
-    if (!/^[0-9a-f]{64}$/i.test(k || '')) {
-      k = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2,'0')).join('');
+    if (!/^[0-9a-f]{64}$/i.test(key || '')) {
+      key = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
     }
-    try { localStorage.setItem('_fos_sk', k); } catch(_) {}
-    try { sessionStorage.setItem('_fos_sk', k); } catch(_) {}
-    this._k = k;
+    this._k = key.toLowerCase();
+    try { localStorage.setItem('_fos_sk', this._k); } catch(_) {}
+    try { sessionStorage.setItem('_fos_sk', this._k); } catch(_) {}
     return this._k;
   },
-  encode(str) {
-    try {
-      const k = this.key();
-      const enc = str.split('').map((c,i) =>
-        String.fromCharCode(c.charCodeAt(0) ^ k.charCodeAt(i % k.length))
-      ).join('');
-      return btoa(unescape(encodeURIComponent(enc)));
-    } catch(e) { return btoa(str); }
+
+  async restoreKey() {
+    if (this._k) return this._k;
+    let key = null;
+    try { key = localStorage.getItem('_fos_sk'); } catch(_) {}
+    if (!/^[0-9a-f]{64}$/i.test(key || '')) {
+      try { key = sessionStorage.getItem('_fos_sk'); } catch(_) {}
+    }
+    if (!/^[0-9a-f]{64}$/i.test(key || '')) {
+      try {
+        if (typeof IDB !== 'undefined') key = await IDB.get('_fos_sk');
+      } catch(_) {}
+    }
+    if (/^[0-9a-f]{64}$/i.test(key || '')) {
+      this._k = key.toLowerCase();
+      try { localStorage.setItem('_fos_sk', this._k); } catch(_) {}
+      try { sessionStorage.setItem('_fos_sk', this._k); } catch(_) {}
+      return this._k;
+    }
+    return this.key();
   },
-  decode(str) {
+
+  async cryptoKey() {
+    if (this._cryptoKey) return this._cryptoKey;
+    const hex = await this.restoreKey();
+    const raw = new Uint8Array(32);
+    for (let i = 0; i < raw.length; i++) raw[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    this._cryptoKey = await crypto.subtle.importKey(
+      'raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']
+    );
+    return this._cryptoKey;
+  },
+
+  async encode(value) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plaintext = new TextEncoder().encode(String(value));
+    const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      await this.cryptoKey(),
+      plaintext
+    ));
+    const payload = new Uint8Array(iv.length + ciphertext.length);
+    payload.set(iv, 0);
+    payload.set(ciphertext, iv.length);
+    let binary = '';
+    for (let offset = 0; offset < payload.length; offset += 0x8000) {
+      binary += String.fromCharCode(...payload.subarray(offset, offset + 0x8000));
+    }
+    return 'FOS2:' + btoa(binary);
+  },
+
+  async decode(value) {
     try {
-      const k = this.key();
-      const raw = decodeURIComponent(escape(atob(str)));
-      return raw.split('').map((c,i) =>
-        String.fromCharCode(c.charCodeAt(0) ^ k.charCodeAt(i % k.length))
+      if (typeof value !== 'string' || !value) return null;
+      if (value.startsWith('FOS2:')) {
+        const binary = atob(value.slice(5));
+        const payload = Uint8Array.from(binary, character => character.charCodeAt(0));
+        if (payload.length <= 12) return null;
+        const iv = payload.slice(0, 12);
+        const ciphertext = payload.slice(12);
+        const plaintext = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv },
+          await this.cryptoKey(),
+          ciphertext
+        );
+        return new TextDecoder().decode(plaintext);
+      }
+
+      // Backward compatibility: read v46/v47 XOR+Base64 data, then the DB
+      // layer re-saves a successful read using AES-GCM.
+      const key = await this.restoreKey();
+      const raw = decodeURIComponent(escape(atob(value)));
+      return raw.split('').map((character, index) =>
+        String.fromCharCode(character.charCodeAt(0) ^ key.charCodeAt(index % key.length))
       ).join('');
-    } catch(e) { return null; }
+    } catch(e) {
+      return null;
+    }
   }
 };
 
@@ -9639,6 +9690,7 @@ const DB = {
   _key: 'financeOS_v2',
   _idbOk: true,
   _loadWarning: false,
+  _saveQueue: Promise.resolve(),
 
   // Preserve the original payload if it cannot be read. Never silently delete
   // a user's only stored copy because a key or JSON parse failed.
@@ -9657,78 +9709,129 @@ const DB = {
   },
 
   // Load full state — decode from vault, parse JSON
-  // Sync fast path reads localStorage so the app boots immediately.
-  load() {
+  // Startup awaits the durable IndexedDB copy before rendering financial state.
+  async decodeState(raw, sourceLabel) {
+    const decoded = await VAULT.decode(raw);
+    if (decoded == null) throw new Error((sourceLabel || 'Stored') + ' data could not be decoded.');
+    const state = JSON.parse(decoded);
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      throw new Error((sourceLabel || 'Stored') + ' state has an invalid shape.');
+    }
+    return state;
+  },
+
+  async load() {
     let raw = null;
     try {
       raw = localStorage.getItem(this._key);
       if (!raw) {
         const legacy = localStorage.getItem('financeOS_v1');
-        if (legacy) {
-          const parsed = JSON.parse(legacy);
-          this.save(parsed);
-          localStorage.removeItem('financeOS_v1');
-          return parsed;
+        if (!legacy) return null;
+        const parsed = JSON.parse(legacy);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Legacy backup has an invalid shape.');
         }
-        return null;
+        await this.save(parsed);
+        localStorage.removeItem('financeOS_v1');
+        return parsed;
       }
-      const decoded = VAULT.decode(raw);
-      if (decoded) {
-        const state = JSON.parse(decoded);
-        if (!state || typeof state !== 'object' || Array.isArray(state)) {
-          throw new Error('Stored FinanceOS state has an invalid shape');
-        }
-        this._loadWarning = false;
-        return state;
-      }
-      this.preserveRecovery(raw, 'The saved data could not be decoded.');
+      const state = await this.decodeState(raw, 'Local');
+      this._loadWarning = false;
+      if (!raw.startsWith('FOS2:')) await this.save(state);
+      return state;
     } catch(e) {
       if (!raw) {
         try { raw = localStorage.getItem(this._key); } catch(_) {}
       }
       this.preserveRecovery(raw, e);
+      return null;
     }
-    return null;
   },
 
-  // Async load — prefers IndexedDB (survives Apple 7-day PWA eviction)
   async loadAsync() {
+    await VAULT.restoreKey();
+    let idbRaw = null;
     try {
-      const idbRaw = await IDB.get(this._key);
+      idbRaw = await IDB.get(this._key);
       if (idbRaw) {
-        const decoded = VAULT.decode(idbRaw);
-        if (decoded) {
-          const state = JSON.parse(decoded);
-          // Mirror to localStorage so sync load() works on next boot
-          try { localStorage.setItem(this._key, idbRaw); } catch(_) {}
-          return state;
-        }
+        const state = await this.decodeState(idbRaw, 'IndexedDB');
+        try { localStorage.setItem(this._key, idbRaw); } catch(_) {}
+        this._loadWarning = false;
+        if (!idbRaw.startsWith('FOS2:')) await this.save(state);
+        return state;
       }
-    } catch(e) { this._idbOk = false; }
-    // IDB miss — fall back to localStorage
+    } catch(e) {
+      this._idbOk = false;
+      if (idbRaw) this.preserveRecovery(idbRaw, e);
+    }
+    // IndexedDB can be missing or unreadable while localStorage remains valid.
     return this.load();
   },
 
-  // Save full state — writes to BOTH IndexedDB and localStorage for maximum durability
   save(state) {
-    try {
-      const encoded = VAULT.encode(JSON.stringify(state));
-      // Primary: IndexedDB (durable, not evicted by Apple's 7-day PWA policy)
-      IDB.set(this._key, encoded).then(ok => {
-        if (!ok) this._idbOk = false;
-      }).catch(() => { this._idbOk = false; });
-      // Secondary: localStorage (fast sync reads, may be evicted on iOS PWA)
-      try { localStorage.setItem(this._key, encoded); } catch(_) {}
-    } catch(e) { console.warn('DB save failed:', e); }
+    let snapshot;
+    try { snapshot = JSON.stringify(state); }
+    catch(e) { console.warn('DB save failed: state could not be serialized.', e); return Promise.resolve(false); }
+
+    const operation = this._saveQueue.then(async () => {
+      const encoded = await VAULT.encode(snapshot);
+      const key = VAULT.key();
+      const idbKeyOk = await IDB.set('_fos_sk', key);
+      const idbDataOk = await IDB.set(this._key, encoded);
+      if (!idbKeyOk || !idbDataOk) this._idbOk = false;
+      try { localStorage.setItem(this._key, encoded); }
+      catch(e) { console.warn('FinanceOS localStorage copy unavailable.', e); }
+      return true;
+    });
+    this._saveQueue = operation.catch(e => {
+      this._idbOk = false;
+      console.warn('DB save failed:', e);
+      return false;
+    });
+    return this._saveQueue;
   },
 
-  // Clear all data from both stores
   clear() {
-    IDB.del(this._key).catch(()=>{});
-    localStorage.removeItem(this._key);
-    localStorage.removeItem(this._key + '_recovery');
-    localStorage.removeItem('financeOS_v1');
-    this._loadWarning = false;
+    try {
+      localStorage.removeItem(this._key);
+      localStorage.removeItem(this._key + '_recovery');
+      localStorage.removeItem('financeOS_v1');
+      localStorage.removeItem('_fos_sk');
+      sessionStorage.removeItem('_fos_sk');
+    } catch(_) {}
+    const operation = this._saveQueue.catch(() => false).then(async () => {
+      await Promise.all([
+        IDB.del(this._key),
+        IDB.del(this._key + '_recovery'),
+        IDB.del('_fos_sk')
+      ]);
+      this._loadWarning = false;
+      return true;
+    });
+    this._saveQueue = operation.catch(e => {
+      console.warn('FinanceOS storage clear incomplete.', e);
+      return false;
+    });
+    return this._saveQueue;
+  },
+
+  preserveRecovery(raw, reason) {
+    this._loadWarning = true;
+    if (raw) {
+      try {
+        const recoveryKey = this._key + '_recovery';
+        if (!localStorage.getItem(recoveryKey)) localStorage.setItem(recoveryKey, raw);
+      } catch(_) {}
+      try {
+        IDB.set(this._key + '_recovery', raw).catch(() => {});
+      } catch(_) {}
+    }
+    console.error('[FinanceOS] Original saved payload preserved for recovery; it was not deleted.', reason || 'unknown error');
+    try {
+      if (typeof showToast === 'function') {
+        setTimeout(() => showToast('Saved data could not be opened. Its original copy was preserved. Do not clear browser storage.', 'warn'), 1200);
+      }
+    } catch(_) {}
   },
 
   // Export full backup as a downloadable .json file
@@ -9748,7 +9851,7 @@ const DB = {
         opportunities:     (() => { try { return JSON.parse(localStorage.getItem('finOS_opportunities')||'null'); } catch(e){ return null; } })(),
         netWorthHistory:   (() => { try { return JSON.parse(localStorage.getItem('fos_nw_history')||'null'); } catch(e){ return null; } })(),
         exportedAt:        new Date().toISOString(),
-        version:           'v47',
+        version:           'v48',
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url  = URL.createObjectURL(blob);
@@ -14776,7 +14879,7 @@ function renderStrategies() {}
 
 // ─── RENDER ALL ──────────────────────────────────────────────────────────────
 function renderPage(page) {
-  const _safecall = (fn) => { try { fn(); } catch(e) { console.error('[FinanceOS TEST v47] renderPage error on "' + page + '":', e); } };
+  const _safecall = (fn) => { try { fn(); } catch(e) { console.error('[FinanceOS TEST v48] renderPage error on "' + page + '":', e); } };
   if (page==='dashboard')    _safecall(renderDashboard);
   else if (page==='transactions') _safecall(() => setMoneyTab(currentMoneyTab));
   else if (page==='assets')  _safecall(renderAssets);
@@ -27901,4 +28004,4 @@ body.light-mode .page#page-settings > div[style*="position:sticky"] {
 </style>
 </body>
 </html>
-<script async data-explicit-opt-in="true" data-deployment-id="dpl_G9KxdprxuFZk2CbVJdjHHGAj7Fcn" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_Cj1dSA2RVz6G9RDDtFsxdzw8tTBK" src="https://vercel.live/_next-live/feedback/feedback.js"></script>
+<script async data-explicit-opt-in="true" data-deployment-id="dpl_G9KxdprxuFZk2CbVJdjHHGAj7Fcn" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_Cj1dSA2RVz6G9RDDtFsxdzw8tTBK" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_5G7HeJAjYofXTns4PySAsExungvj" src="https://vercel.live/_next-live/feedback/feedback.js"></script>
