@@ -364,7 +364,11 @@
     if (!root) return false;
     if (root.nodeType === 3) return upgradeTextNode(root);
     if (root.nodeType !== 1) return false;
-    if (root.matches && root.matches(SKIP_SELECTOR)) return false;
+    if (root.matches && root.matches('option,select')) {
+      cleanOptions(root);
+      return false;
+    }
+    if (root.matches && root.matches('script,style,textarea,input,code,pre,svg,[contenteditable="true"],.no-emoji-icon')) return false;
     cleanOptions(root);
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
