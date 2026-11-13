@@ -27,6 +27,7 @@
 <link id="pwa-manifest" rel="manifest"/>
 
 <title>FinanceOS TEST v47 — Your Money · Your Business</title>
+<script src="./financeos-core.js"></script>
 
 <script>
 // ── Inject PWA Manifest inline so single-file works as installable PWA ──
@@ -9967,7 +9968,7 @@ function buildMonthlyHistory() {
   const months = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = d.toISOString().substring(0,7);
+    const key = FinanceOSCore.localMonthKey(d);
     const label = d.toLocaleString('default',{month:'short'});
     const txMonth = transactions.filter(t => t.date.startsWith(key));
     const inc  = txMonth.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0)
@@ -9975,7 +9976,7 @@ function buildMonthlyHistory() {
     const exp  = Math.abs(txMonth
                    .filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat))
                    .reduce((s,t)=>s+t.amount,0));
-    months.push({ month: label, income: inc || (key <= now.toISOString().substring(0,7) ? SETTINGS.income : 0), expenses: exp });
+    months.push({ month: label, income: inc || (key <= FinanceOSCore.localMonthKey(now) ? SETTINGS.income : 0), expenses: exp });
   }
   return months;
 }
@@ -10030,7 +10031,7 @@ function snapshotNetWorthIfNewMonth() {
   try {
     const history = getNetWorthHistory();
     const now = new Date();
-    const key = now.toISOString().substring(0,7); // YYYY-MM
+    const key = FinanceOSCore.localMonthKey(now); // YYYY-MM
     if (history.length && history[history.length-1].month === key) return; // already snapped this month
     const stats = (function() {
       const totalAssets = assets.reduce((s,a)=>s+a.value,0);
@@ -10074,7 +10075,7 @@ function getFiscalPeriod(referenceDate) {
     periodEnd   = new Date(d.getFullYear(), d.getMonth(), startDay - 1);
   }
   // Format as YYYY-MM-DD strings for easy comparison
-  const fmt = dt => dt.toISOString().split('T')[0];
+  const fmt = dt => FinanceOSCore.localDateKey(dt);
   return { start: fmt(periodStart), end: fmt(periodEnd) };
 }
 
@@ -10131,84 +10132,86 @@ const FX = {
 //              nextDate, active, created_at }
 // ═══════════════════════════════════════════════════════════════════
 function applyRecurringTransactions() {
-  if (!recurringTx || !recurringTx.length) return;
-  const today = new Date().toISOString().split('T')[0];
+  if (!Array.isArray(recurringTx) || !recurringTx.length) return;
+  const today = FinanceOSCore.localDateKey(new Date());
   let changed = false;
 
   recurringTx.forEach(rule => {
-    if (!rule.active) return;
-    if (!rule.nextDate || rule.nextDate > today) return;
+    if (!rule || !rule.active || !rule.nextDate || rule.nextDate > today) return;
+    let catchUpCount = 0;
 
-    // ── Lease-to-Own: split payment into equity + interest ────────────────
-    if (rule.leaseType === 'own' && rule.leaseAssetRef) {
-      const assetIdx = assets.findIndex(a => a.id === rule.leaseAssetRef);
-      const principal = rule.leasePrincipal || 0;
-      const interest  = rule.leaseInterest  || 0;
+    while (rule.active && rule.nextDate && rule.nextDate <= today && catchUpCount < 240) {
+      catchUpCount++;
+      const occurrenceDate = rule.nextDate;
+      const alreadyCreated = transactions.some(t =>
+        String(t.recurringId) === String(rule.id) && t.date === occurrenceDate
+      );
 
-      // Full payment logged as expense
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: `${rule.desc} (equity + interest)`,
-        date: rule.nextDate, cat: rule.cat, type: 'expense',
-        amount: -Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id,
-        leaseType: 'own',
-        leasePrincipal: principal, leaseInterest: interest,
-      });
+      if (!alreadyCreated) {
+        const amount = Math.abs(Number(rule.amount) || 0);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          rule.active = false;
+          showToast('A recurring rule with an invalid amount was paused.', 'warn');
+          break;
+        }
+        const txId = 'recurring:' + String(rule.id) + ':' + occurrenceDate;
 
-      // Update asset equity counter
-      if (assetIdx >= 0) {
-        const a = assets[assetIdx];
-        a.leasePaidMonths  = (a.leasePaidMonths  || 0) + 1;
-        a.leaseEquityBuilt = (a.leaseEquityBuilt || 0) + principal;
-        // If fully paid, mark as owned
-        if (a.leaseMonths && a.leasePaidMonths >= a.leaseMonths) {
-          a.acquisition = 'purchased';
-          a.leaseFullyOwned = true;
-          rule.active = false; // Stop recurring
-          showToast(`🎉 ${a.name} is now fully owned!`, 'success');
+        if (rule.leaseType === 'own' && rule.leaseAssetRef) {
+          const assetIdx = assets.findIndex(a => String(a.id) === String(rule.leaseAssetRef));
+          const principal = Number(rule.leasePrincipal) || 0;
+          const interest = Number(rule.leaseInterest) || 0;
+          transactions.push({
+            id: txId, desc: String(rule.desc || '') + ' (equity + interest)',
+            date: occurrenceDate, cat: rule.cat, type: 'expense', amount: -amount,
+            created_at: new Date().toISOString(), source: 'recurring', recurringId: rule.id,
+            leaseType: 'own', leasePrincipal: principal, leaseInterest: interest,
+          });
+          if (assetIdx >= 0) {
+            const asset = assets[assetIdx];
+            asset.leasePaidMonths = (asset.leasePaidMonths || 0) + 1;
+            asset.leaseEquityBuilt = (asset.leaseEquityBuilt || 0) + principal;
+            if (asset.leaseMonths && asset.leasePaidMonths >= asset.leaseMonths) {
+              asset.acquisition = 'purchased';
+              asset.leaseFullyOwned = true;
+              rule.active = false;
+              showToast('Lease completed: ' + String(asset.name || 'asset') + ' is fully owned.', 'success');
+            }
+          }
+        } else if (rule.leaseType === 'rent') {
+          transactions.push({
+            id: txId, desc: String(rule.desc || ''), date: occurrenceDate,
+            cat: rule.cat, type: 'expense', amount: -amount,
+            created_at: new Date().toISOString(), source: 'recurring',
+            recurringId: rule.id, leaseType: 'rent',
+          });
+        } else {
+          transactions.push({
+            id: txId, desc: String(rule.desc || ''), date: occurrenceDate,
+            cat: rule.cat, type: rule.type,
+            amount: rule.type === 'expense' ? -amount : amount,
+            created_at: new Date().toISOString(), source: 'recurring', recurringId: rule.id,
+          });
         }
       }
 
-    // ── Lease-to-Rent: pure expense ───────────────────────────────────────
-    } else if (rule.leaseType === 'rent') {
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: rule.desc, date: rule.nextDate, cat: rule.cat, type: 'expense',
-        amount: -Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id, leaseType: 'rent',
-      });
-
-    // ── Standard recurring (income or expense) ────────────────────────────
-    } else {
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: rule.desc, date: rule.nextDate, cat: rule.cat, type: rule.type,
-        amount: rule.type === 'expense' ? -Math.abs(rule.amount) : Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id,
-      });
+      try {
+        rule.nextDate = FinanceOSCore.nextRecurringDate(occurrenceDate, rule.frequency, rule.dayOfMonth);
+      } catch(e) {
+        rule.active = false;
+        showToast('A recurring rule has an invalid schedule and was paused.', 'warn');
+        break;
+      }
+      changed = true;
     }
 
-    // Advance nextDate
-    const next = new Date(rule.nextDate);
-    if (rule.frequency === 'weekly')         next.setDate(next.getDate() + 7);
-    else if (rule.frequency === 'biweekly')  next.setDate(next.getDate() + 14);
-    else {
-      next.setMonth(next.getMonth() + 1);
-      if (rule.dayOfMonth) next.setDate(Math.min(rule.dayOfMonth, 28));
+    if (catchUpCount >= 240 && rule.nextDate && rule.nextDate <= today) {
+      showToast('A recurring rule exceeded the 240-payment catch-up limit. Review its schedule.', 'warn');
     }
-    rule.nextDate = next.toISOString().split('T')[0];
-    changed = true;
   });
 
   if (changed) dbSave();
 }
 
-// ── Lease Renewal Alerts ──────────────────────────────────────────────────────
-// Returns array of alerts for leases ending within 60 days
 function getLeaseRenewalAlerts() {
   const today    = new Date();
   const alerts   = [];
@@ -10242,10 +10245,16 @@ function addRecurringRule() {
   const cat       = document.getElementById('rec-cat')?.value || 'other';
   const freq      = document.getElementById('rec-freq')?.value || 'monthly';
   const startDate = document.getElementById('rec-start')?.value;
-  if (!desc || !amount || !startDate) {
-    showToast('Fill in all recurring transaction fields.', 'warn'); return;
+  if (!desc || !Number.isFinite(amount) || amount <= 0 || !startDate) {
+    showToast('Enter a description, positive amount, and valid start date.', 'warn'); return;
   }
-  const startD = new Date(startDate);
+  let startD;
+  try {
+    FinanceOSCore.nextRecurringDate(startDate, freq, Number(startDate.slice(-2)));
+    startD = new Date(startDate + 'T12:00:00');
+  } catch(e) {
+    showToast('Choose a valid recurring date and frequency.', 'warn'); return;
+  }
   const rule = {
     id: Date.now(),
     desc, amount, type, cat,
@@ -10402,12 +10411,12 @@ function normDate(str) {
   if (parts.length === 3 && parts[2].length === 4) {
     return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
   }
-  return new Date().toISOString().split('T')[0];
+  return FinanceOSCore.localDateKey(new Date());
 }
 
 function parseMoMoStatement(text) {
   const results = [];
-  const today = new Date().toISOString().split('T')[0];
+  const today = FinanceOSCore.localDateKey(new Date());
 
   MOMO_PATTERNS.forEach(pattern => {
     const re = new RegExp(pattern.re.source, pattern.re.flags);
@@ -10520,13 +10529,19 @@ function showToast(msg, type='success') {
   t.style.border = `1px solid ${borders[type]||borders.success}`;
   t.style.color = textCols[type]||textCols.success;
   t.style.backdropFilter = 'blur(20px)';
-  t.innerHTML = msg;
+  t.textContent = String(msg).replace(/<svg[\s\S]*?<\/svg>/gi, '').replace(/<[^>]*>/g, '');
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.style.opacity='0'; }, 3000);
 }
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
+function escapeHTML(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function fmt(n, hide) {
   if (hide) return '••••';
   const cur = SETTINGS.currency || 'USD';
@@ -10548,47 +10563,24 @@ document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('cl
 // All features read from here. Never hardcode income/savings elsewhere.
 
 function getMonthlyIncome() {
-  // FIX 1: Always use CURRENT CALENDAR MONTH — never derive from latest transaction date.
-  // Using latest-transaction-month caused income/expense period mismatch (e.g. Feb income vs Mar expenses).
-  const curMonth = new Date().toISOString().substring(0,7);
-  // SETTINGS.income is always the base monthly salary.
-  // Any income transactions that are NOT the synthetic salary entry count as extras (bonuses, side hustle).
-  // We also skip recurring-generated salary entries (source:'recurring' with salary-like descriptions).
   const SALARY_DESCS = ['Monthly Salary', 'Salary', 'salary'];
   const extraIncome = transactions
-    .filter(t =>
-      t.type === 'income' &&
-      t.date.startsWith(curMonth) &&
+    .filter(t => t.type === 'income' && txInCurrentFiscalPeriod(t) &&
       !SALARY_DESCS.some(d => t.desc === d) &&
-      !(t.source === 'recurring' && t.cat === 'income' && t.amount >= SETTINGS.income * 0.8)
-    )
-    .reduce((s,t) => s + t.amount, 0);
-  return SETTINGS.income + extraIncome;
+      !(t.source === 'recurring' && t.cat === 'income' && t.amount >= SETTINGS.income * 0.8))
+    .reduce((sum, t) => sum + Math.abs(Number(t.amount) || 0), 0);
+  return Math.max(0, Number(SETTINGS.income) || 0) + extraIncome;
 }
+
 
 function getMonthlyExpenses() {
-  // FIX 2: Exclude 'savings' and 'investment' category transactions — these are money TRANSFERS,
-  // not actual spending. Counting them as expenses inflates costs and deflates the surplus/freedom age.
-  const TRANSFER_CATS = ['savings', 'investment', 'sacco', 'umworo', 'momo'];
-  const isRealExpense = t => t.type === 'expense' && !TRANSFER_CATS.includes(t.cat);
-
-  // Always use current calendar month first
-  const curMonth = new Date().toISOString().substring(0,7);
-  const curExp = Math.abs(
-    transactions.filter(t => isRealExpense(t) && t.date.startsWith(curMonth))
-      .reduce((s,t) => s + t.amount, 0)
-  );
-  if (curExp > 0) return curExp;
-  // No expenses logged yet this month — fall back to most recent month with data
-  const sorted = [...transactions].filter(isRealExpense).sort((a,b)=>b.date.localeCompare(a.date));
-  if (!sorted.length) return Math.round(SETTINGS.income * 0.6);
-  const latestMonth = sorted[0].date.substring(0,7);
-  return Math.abs(sorted.filter(t=>t.date.startsWith(latestMonth)).reduce((s,t)=>s+t.amount,0))
-    || Math.round(SETTINGS.income * 0.6);
+  return Math.abs(transactions
+    .filter(t => t.type === 'expense' &&
+      !FinanceOSCore.TRANSFER_CATEGORIES.includes(t.cat) &&
+      txInCurrentFiscalPeriod(t))
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0));
 }
 
-// FIX: Emergency fund detection via asset type, not keyword.
-// Falls back to keyword search for backward compat with existing data.
 function getEmergencyFundAsset() {
   return assets.find(a => a.type === 'emergency_fund')
       || assets.find(a => a.name.toLowerCase().includes('emergency'))
@@ -10619,11 +10611,19 @@ function getStats() {
       return ds.reduce((s,d) => s + (d.balance || 0), 0);
     } catch(e) { return 0; }
   }());
-  const netWorth = totalAssets + invPortfolioExtra - totalDebt;
+  const netWorth = (() => {
+    try {
+      return FinanceOSCore.calculateNetWorth(
+        assets,
+        JSON.parse(localStorage.getItem('finOS_investments') || '[]'),
+        JSON.parse(localStorage.getItem('fos_debts') || '[]')
+      );
+    } catch(e) { return totalAssets + invPortfolioExtra - totalDebt; }
+  })();
   const savingsRate = income>0 ? ((income-expenses)/income*100).toFixed(0) : 0;
   // Always use actual current calendar month — never derive from latest transaction date
   const now = new Date();
-  const curMonth  = now.toISOString().substring(0,7);
+  const curMonth  = FinanceOSCore.localMonthKey(now);
   const prevDate  = new Date(now.getFullYear(), now.getMonth()-1, 1);
   const prevMonth = prevDate.toISOString().substring(0,7);
   const thisMo = transactions.filter(t=>t.date.startsWith(curMonth));
@@ -10900,23 +10900,10 @@ function initSimpleMode() {
 }
 
 function getNetWorth() {
-  try {
-    // Sum assets — SMS-verified cash assets already reflect ground-truth balance
-    const assetTotal = (typeof assets !== 'undefined' ? assets : [])
-      .reduce((s, a) => s + (parseFloat(a.value) || 0), 0);
-
-    // If no SMS balance has been confirmed, add monthly cash surplus as estimate
-    const hasSmsBalance = SETTINGS.smsConfirmedBalance && SETTINGS.smsConfirmedBalance > 0;
-    if (!hasSmsBalance) {
-      const income   = typeof getMonthlyIncome   === 'function' ? getMonthlyIncome()   : 0;
-      const expenses = typeof getMonthlyExpenses  === 'function' ? getMonthlyExpenses() : 0;
-      return assetTotal + Math.max(0, income - expenses);
-    }
-    // SMS balance is ground truth — assets already include the verified cash asset,
-    // so we just return the asset total (which already incorporates the real balance).
-    return assetTotal;
-  } catch(e) { return 0; }
+  // One definition is shared by the dashboard and the other financial sections.
+  return getStats().netWorth;
 }
+
 
 function checkNetWorthUnlock() {
   // Called after every dashboard render — auto-upgrade from simple to 3/4 at 2M
@@ -11773,7 +11760,7 @@ function addTransaction() {
   if (amount <= 0)              { showToast('Amount must be greater than 0', 'warn'); return; }
   if (amount > 999_999_999)     { showToast('Amount seems too large — check the value', 'warn'); return; }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = FinanceOSCore.localDateKey(new Date());
   if (date > today) { showToast('Date cannot be in the future', 'warn'); return; }
 
   const editId = document.getElementById('txEditId').value;
@@ -12158,7 +12145,9 @@ function saveAsset() {
   const editId      = document.getElementById('assetEditId').value;
   const acquisition = document.getElementById('assetAcquisition')?.value || 'purchased';
   const acqDateRaw  = document.getElementById('assetAcquisitionDate')?.value || '';
-  if (!name || !value) return;
+  if (!name || !Number.isFinite(value) || value <= 0 || !Number.isFinite(cost) || cost < 0) {
+    showToast('Enter an asset name, positive finite value, and non-negative cost.', 'warn'); return;
+  }
   const now     = new Date().toISOString();
   const acqDate = acqDateRaw || now.slice(0, 10);
   const txCat   = ASSET_CAT_MAP[type] || 'other';
@@ -13992,6 +13981,7 @@ Investments, budgeting, savings acceleration, side income, debt elimination, rea
 }
 
 function formatAIResponse(text) {
+  text = escapeHTML(text);
   // Bold
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Bullets — wrap content, not the marker
@@ -14696,7 +14686,7 @@ function renderBankResultsFallback(text) {
 
 function parseGenericStatement(text) {
   const results = [];
-  const today = new Date().toISOString().split('T')[0];
+  const today = FinanceOSCore.localDateKey(new Date());
   text.split('\n').forEach(line => {
     const m = line.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+(.+?)\s+([\+\-])?\s*([\d,]+)/);
     if (!m) return;
@@ -14961,7 +14951,7 @@ const IDEAL_ALLOC = [
 ];
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
-document.getElementById('txDate').value = new Date().toISOString().split('T')[0];
+document.getElementById('txDate').value = FinanceOSCore.localDateKey(new Date());
 // Ensure all pages are hidden except dashboard on first load
 document.querySelectorAll('.page').forEach(p => {
   if (p.id === 'page-dashboard') { p.style.display = 'block'; p.classList.add('active'); }
@@ -15031,35 +15021,31 @@ function fpProject(months, route, savings, monthly) {
 }
 
 function fpGetMonthlySaved() {
-  const inc = getMonthlyIncome();
-  const exp = getMonthlyExpenses();
-  // FIX 4: Subscriptions and debt payments live in separate modules and are NOT automatically
-  // added to the transactions array. If we ignore them, monthly savings is OVERSTATED,
-  // making freedom age appear unrealistically close.
-  const subCost = (function() {
-    try {
-      const subs = JSON.parse(localStorage.getItem('fos_subs')||'[]');
-      return subs.filter(s=>s.status==='active').reduce((sum,s)=>sum+subMonthlyAmount(s),0);
-    } catch(e){ return 0; }
-  }());
-  const debtPayments = (function() {
-    try {
-      const ds = JSON.parse(localStorage.getItem('fos_debts')||'[]');
-      return ds.reduce((s,d)=>s+(d.monthly||0),0);
-    } catch(e){ return 0; }
-  }());
-  // Only add sub/debt costs that aren't already tracked as transactions
-  // (if user has them as recurring transactions, avoid double-counting)
-  const alreadyInTx = exp; // transactions already capture manually-logged subs/debts
-  // Conservative: only add external modules if they exceed what's in transactions
-  // We add the NET delta to ensure real obligations aren't missed
-  const txBasedSubs = transactions
-    .filter(t=>t.type==='expense' && t.cat==='other' && t.date.startsWith(new Date().toISOString().substring(0,7)))
-    .reduce((s,t)=>s+Math.abs(t.amount),0);
-  const uncapturedSubs  = Math.max(0, subCost   - 0); // Always include: subs rarely logged as transactions
-  const uncapturedDebt  = Math.max(0, debtPayments - 0); // Always include: debt payments rarely logged as transactions
-  return Math.max(0, inc - exp - uncapturedSubs - uncapturedDebt);
+  const income = getMonthlyIncome();
+  const expenses = getMonthlyExpenses();
+  const periodExpenses = transactions.filter(t => t.type === 'expense' && txInCurrentFiscalPeriod(t));
+
+  const capturedFor = obligation => {
+    const id = obligation && obligation.id != null ? String(obligation.id) : '';
+    const label = String(obligation && (obligation.name || obligation.title || obligation.description) || '').trim().toLowerCase();
+    return periodExpenses.filter(t =>
+      (id && String(t.obligationId || '') === id) ||
+      (label && String(t.desc || '').toLowerCase().includes(label))
+    ).reduce((sum, t) => sum + Math.abs(Number(t.amount) || 0), 0);
+  };
+
+  let subs = [], debtsList = [];
+  try { subs = JSON.parse(localStorage.getItem('fos_subs') || '[]'); } catch(e) {}
+  try { debtsList = JSON.parse(localStorage.getItem('fos_debts') || '[]'); } catch(e) {}
+
+  const uncapturedSubs = subs.filter(s => s.status === 'active')
+    .reduce((sum, s) => sum + Math.max(0, subMonthlyAmount(s) - capturedFor(s)), 0);
+  const uncapturedDebt = debtsList.filter(d => Number(d.balance) > 0)
+    .reduce((sum, d) => sum + Math.max(0, (Number(d.monthly) || 0) - capturedFor(d)), 0);
+
+  return FinanceOSCore.calculateMonthlySavings(income, expenses, uncapturedSubs, uncapturedDebt);
 }
+
 
 function fpRenderRoutes() {
   const ageNow = fpGetAgeNow();
@@ -16329,7 +16315,7 @@ const NEXUS = {
             ref: data.ref || null,       // SMS reference/transaction ID
             balance: data.balance || null,
             desc: data.desc || '',
-            date: new Date().toISOString().split('T')[0],
+            date: FinanceOSCore.localDateKey(new Date()),
             cat: inferMomoCat(data.party + ' ' + data.desc),
             rawSms: m[0].substring(0, 200),
           });
@@ -16385,7 +16371,7 @@ const NEXUS = {
       if (latestBalance !== null) {
         this._lastBalance = latestBalance;
         SETTINGS.smsConfirmedBalance = latestBalance;
-        SETTINGS.smsBalanceDate = new Date().toISOString().split('T')[0];
+        SETTINGS.smsBalanceDate = FinanceOSCore.localDateKey(new Date());
         SETTINGS.smsBalanceSource = parsed.find(p => p.balance === latestBalance)?.bank || 'SMS';
         nexusApplyGroundTruthBalance(latestBalance);
       }
@@ -16408,7 +16394,7 @@ const NEXUS = {
   think() {
     const income = SETTINGS.income || 0;
     const now = new Date();
-    const thisMonth = now.toISOString().substring(0,7);
+    const thisMonth = FinanceOSCore.localMonthKey(now);
     const txMonth = transactions.filter(t => t.date.startsWith(thisMonth));
 
     const totalIncome  = txMonth.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0) || income;
@@ -16615,7 +16601,7 @@ function nexusApplyGroundTruthBalance(balance) {
   if (cashAsset) {
     cashAsset.value = balance;
     cashAsset.smsVerified = true;
-    cashAsset.smsVerifiedDate = new Date().toISOString().split('T')[0];
+    cashAsset.smsVerifiedDate = FinanceOSCore.localDateKey(new Date());
   } else {
     // Create a verified cash asset if none exists
     assets.push({
@@ -16624,13 +16610,13 @@ function nexusApplyGroundTruthBalance(balance) {
       value: balance,
       type: 'cash',
       smsVerified: true,
-      smsVerifiedDate: new Date().toISOString().split('T')[0],
+      smsVerifiedDate: FinanceOSCore.localDateKey(new Date()),
     });
   }
 
   // 2. Mark balance as fresh so Brain Engine uses it as ground truth
   SETTINGS.smsConfirmedBalance = balance;
-  SETTINGS.smsBalanceDate = new Date().toISOString().split('T')[0];
+  SETTINGS.smsBalanceDate = FinanceOSCore.localDateKey(new Date());
 
   // 3. Show ground-truth indicator on SMS page
   const gtEl = document.getElementById('nexusBalanceGT');
@@ -16658,12 +16644,12 @@ function renderSmsPage() {
     } else {
       logEl.innerHTML = NEXUS._activityLog.map(entry => {
         const bankBadges = entry.banks.map(b =>
-          `<span style="display:inline-block;padding:1px 6px;background:rgba(212,168,67,.08);border:1px solid rgba(212,168,67,.2);border-radius:20px;font-size:10px;color:var(--gold);margin-right:3px;">${b}</span>`
+          `<span style="display:inline-block;padding:1px 6px;background:rgba(212,168,67,.08);border:1px solid rgba(212,168,67,.2);border-radius:20px;font-size:10px;color:var(--gold);margin-right:3px;">${escapeHTML(b)}</span>`
         ).join('');
         const balStr = entry.balance ? ` · Balance: <strong style="color:var(--green)">${fmtN(entry.balance)} ${SETTINGS.currency}</strong>` : '';
         return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:flex-start;gap:8px;">
           <span style="color:var(--textdim);flex-shrink:0;">${entry.time}</span>
-          <div>${entry.msg}${balStr}<br>${bankBadges}</div>
+          <div>${escapeHTML(entry.msg)}${balStr}<br>${bankBadges}</div>
         </div>`;
       }).join('');
     }
@@ -16848,7 +16834,7 @@ ${text}` }]
       ref: t.ref || null,
       balance: t.balance || null,
       desc: t.desc || '',
-      date: new Date().toISOString().split('T')[0],
+      date: FinanceOSCore.localDateKey(new Date()),
       cat: inferMomoCat(t.desc + ' ' + (t.party||'')),
       rawSms: text.substring(0, 200),
     })).filter(t => t.amount > 0);
@@ -16885,7 +16871,7 @@ function nexusEnablePush() { NEXUS.setupPush(); }
 // ─────────────────────────────────────────────────────────────────────────────
 
 function nexusExtractDate(smsText) {
-  if (!smsText) return new Date().toISOString().split('T')[0];
+  if (!smsText) return FinanceOSCore.localDateKey(new Date());
   // ISO datetime: 2026-03-12 14:32:00 or 2026-03-12T14:32
   let m = smsText.match(/(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2})?/);
   if (m) return m[1];
@@ -16898,7 +16884,7 @@ function nexusExtractDate(smsText) {
   if (m) { const mo = months[m[2].toLowerCase().slice(0,3)]; return `${m[3]}-${String(mo).padStart(2,'0')}-${m[1].padStart(2,'0')}`; }
   m = smsText.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+(\d{1,2}),?\s+(\d{4})/i);
   if (m) { const mo = months[m[1].toLowerCase().slice(0,3)]; return `${m[3]}-${String(mo).padStart(2,'0')}-${m[2].padStart(2,'0')}`; }
-  return new Date().toISOString().split('T')[0];
+  return FinanceOSCore.localDateKey(new Date());
 }
 
 // Extend NEXUS_PATTERNS with real-world Rwanda SMS formats
@@ -16968,7 +16954,7 @@ function nexusExtractDate(smsText) {
     const smsDate = nexusExtractDate(text);
     results.forEach(r => {
       // Only override if we found a real date (not today's fallback from a date-less SMS)
-      if (smsDate !== new Date().toISOString().split('T')[0]) {
+      if (smsDate !== FinanceOSCore.localDateKey(new Date())) {
         r.date = smsDate;
       }
     });
@@ -17037,7 +17023,7 @@ If no transactions found, return [].`,
         return;
       }
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = FinanceOSCore.localDateKey(new Date());
       _nexusParsed = aiParsed.map(t => ({
         bank: t.bank || 'AI-detected',
         bankColor: '#6b7280',
@@ -17074,7 +17060,7 @@ If no transactions found, return [].`,
               const cat=CATS[t.cat]||CATS.other;
               const refBadge=t.ref?`<span style="font-size:9px;padding:1px 6px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;color:var(--textdim);font-family:monospace;">${t.ref}</span>`:'';
               const bankBadge=`<span style="font-size:9px;padding:1px 6px;background:rgba(212,168,67,.06);border:1px solid rgba(212,168,67,.15);border-radius:10px;color:var(--gold);">${t.bank}</span>`;
-              const dateBadge=t.date&&t.date!==new Date().toISOString().split('T')[0]?`<span style="font-size:9px;padding:1px 6px;background:rgba(163,230,53,.05);border:1px solid rgba(163,230,53,.15);border-radius:10px;color:var(--textdim);">${t.date}</span>`:'';
+              const dateBadge=t.date&&t.date!==FinanceOSCore.localDateKey(new Date())?`<span style="font-size:9px;padding:1px 6px;background:rgba(163,230,53,.05);border:1px solid rgba(163,230,53,.15);border-radius:10px;color:var(--textdim);">${t.date}</span>`:'';
               return`<div style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;">
                 <div style="font-size:15px;flex-shrink:0;">${cat.icon}</div>
                 <div style="flex:1;min-width:0;">
@@ -18266,7 +18252,8 @@ function handleImport(event) {
     try {
       // Parse first to validate before saving
       const parsed = JSON.parse(e.target.result);
-      if (typeof parsed !== 'object' || parsed === null) throw new Error('Invalid backup format');
+      const validation = FinanceOSCore.validateBackup(parsed);
+      if (!validation.valid) throw new Error(validation.error || 'Invalid backup format');
 
       // Save to DB (re-encrypts with current session key)
       DB.save(parsed);
@@ -18313,6 +18300,8 @@ function confirmWipeData() {
 
 function wipeAllData() {
   DB.clear();
+  try { if (typeof AUTH !== 'undefined') AUTH.clear(); } catch(e) {}
+  try { localStorage.removeItem('_fos_sk'); sessionStorage.removeItem('_fos_sk'); } catch(e) {}
   // Clear all isolated module keys
   ['fos_debts','fos_goals','fos_subs','finOS_investments','finOS_opportunities','assetGrowthHx','fos_nw_history'].forEach(k => { try { localStorage.removeItem(k); } catch(e){} });
   // Reset in-memory state to defaults
@@ -20179,7 +20168,7 @@ function buildMonthBuckets(nMonths) {
   const now = new Date();
   for (let i = nMonths - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = d.toISOString().substring(0,7);
+    const key = FinanceOSCore.localMonthKey(d);
     const label = d.toLocaleString('default',{month:'short'}) + (i === 0 ? '' : '');
     buckets.push({ key, label, income: 0, expenses: 0 });
   }
@@ -20346,7 +20335,7 @@ function renderPieChart(s) {
   if (!ctx) return;
   if (pieChart) pieChart.destroy();
   const now = new Date();
-  const curMonth  = now.toISOString().substring(0,7);
+  const curMonth  = FinanceOSCore.localMonthKey(now);
   const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonth = prevDate.toISOString().substring(0,7);
   let txSet = transactions;
@@ -20444,7 +20433,7 @@ function autoNetWorthSnapshot() {
   // Full net worth: assets + investment portal - debts
   const total = getStats().netWorth;
   const now   = new Date();
-  const label = now.toISOString().substring(0,7); // YYYY-MM key
+  const label = FinanceOSCore.localMonthKey(now); // YYYY-MM key
   try {
     let hx = JSON.parse(localStorage.getItem('nwHistory')||'[]');
     const existing = hx.findIndex(h => h.key === label);
@@ -20462,7 +20451,7 @@ function autoNetWorthSnapshot() {
 function manualNetWorthSnapshot() {
   const total = getStats().netWorth;
   const now   = new Date();
-  const key   = now.toISOString().substring(0,7);
+  const key   = FinanceOSCore.localMonthKey(now);
   try {
     let hx = JSON.parse(localStorage.getItem('nwHistory')||'[]');
     const existing = hx.findIndex(h => h.key === key);
@@ -20520,7 +20509,7 @@ function renderPeriodComparison() {
   const lbl = document.getElementById('compPeriodLabel');
   if (!el) return;
   const now = new Date();
-  const curKey  = now.toISOString().substring(0,7);
+  const curKey  = FinanceOSCore.localMonthKey(now);
   const prevDate = new Date(now.getFullYear(), now.getMonth()-1, 1);
   const prevKey  = prevDate.toISOString().substring(0,7);
   const curName  = now.toLocaleString('default',{month:'short'});
@@ -20561,8 +20550,8 @@ function renderPeriodComparison() {
 // ═══════════════════════════════════════════════════════════════════
 function analyticsPreset(btn, preset) { /* btn may be null when called from dropdown */
   const now = new Date();
-  let from, to = now.toISOString().split('T')[0];
-  if (preset === 'thismonth') { from = now.toISOString().substring(0,7)+'-01'; }
+  let from, to = FinanceOSCore.localDateKey(now);
+  if (preset === 'thismonth') { from = FinanceOSCore.localMonthKey(now)+'-01'; }
   else if (preset === 'lastmonth') {
     const d = new Date(now.getFullYear(), now.getMonth()-1, 1);
     from = d.toISOString().split('T')[0];
@@ -20580,12 +20569,13 @@ function renderAnalytics() {
   const fromEl = document.getElementById('analyticsFrom');
   const toEl   = document.getElementById('analyticsTo');
   const now    = new Date();
-  const from   = fromEl?.value || now.toISOString().substring(0,7)+'-01';
-  const to     = toEl?.value   || now.toISOString().split('T')[0];
+  const from   = fromEl?.value || FinanceOSCore.localMonthKey(now)+'-01';
+  const to     = toEl?.value   || FinanceOSCore.localDateKey(now);
 
   const inRange = transactions.filter(t => t.date >= from && t.date <= to);
-  const income  = inRange.filter(t=>t.type==='income').reduce((s,t)=>s+Math.abs(t.amount),0);
-  const expense = inRange.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
+  const financialRange = inRange.filter(t => t.type !== 'expense' || !FinanceOSCore.TRANSFER_CATEGORIES.includes(t.cat));
+  const income = financialRange.filter(t=>t.type==='income').reduce((s,t)=>s+Math.abs(t.amount),0);
+  const expense = financialRange.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
   const savings = income - expense;
   const sr      = income > 0 ? Math.round(savings/income*100) : 0;
 
@@ -20671,23 +20661,28 @@ function renderAnalytics() {
 
 function exportAnalyticsCSV() {
   const from = document.getElementById('analyticsFrom')?.value || '';
-  const to   = document.getElementById('analyticsTo')?.value   || '';
-  const rows = transactions.filter(t=>(!from||t.date>=from)&&(!to||t.date<=to));
-  const lines = ['Date,Description,Type,Category,Amount (RWF),Source',
-    ...rows.map(t=>`"${t.date}","${t.desc}","${t.type}","${t.cat}","${Math.abs(t.amount)}","${t.source||'manual'}"`)];
-  const blob = new Blob([lines.join('\n')],{type:'text/csv'});
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a'); a.href=url; a.download='FinanceOS_transactions.csv'; a.click();
-  URL.revokeObjectURL(url);
-  showToast('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><polyline points="20 6 9 17 4 12"/></svg> CSV exported', 'success');
+  const to = document.getElementById('analyticsTo')?.value || '';
+  const rows = transactions.filter(t => (!from || t.date >= from) && (!to || t.date <= to));
+  const headers = ['Date','Description','Type','Category','Amount (' + (SETTINGS.currency || 'RWF') + ')','Source'];
+  const lines = [
+    headers.map(value => FinanceOSCore.csvCell(value)).join(','),
+    ...rows.map(t => [
+      FinanceOSCore.csvCell(t.date),
+      FinanceOSCore.csvCell(t.desc),
+      FinanceOSCore.csvCell(t.type),
+      FinanceOSCore.csvCell(t.cat),
+      FinanceOSCore.csvCell(Math.abs(Number(t.amount) || 0), false),
+      FinanceOSCore.csvCell(t.source || 'manual'),
+    ].join(','))
+  ];
+  const blob = new Blob([lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'FinanceOS_transactions.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  showToast('CSV exported.', 'success');
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// DEBT MANAGER MODULE
-// ═══════════════════════════════════════════════════════════════════
-var debts = [];
-var debtStrategy = 'avalanche';
-const DEBT_TYPES = { mortgage:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',car:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>',personal:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',business:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg>',credit:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',student:'🎓',other:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>' };
 
 function loadDebts() {
   try { const r=localStorage.getItem('fos_debts'); if(r) debts=JSON.parse(r); } catch(e){}
@@ -20720,15 +20715,22 @@ function openDebtModal(id) {
 
 function saveDebt() {
   const name = document.getElementById('debt-name').value.trim();
-  if (!name) { showToast('Enter a debt name','warn'); return; }
   const editId = document.getElementById('debt-edit-id').value;
+  const originalValue = Number(document.getElementById('debt-original').value);
+  const balanceValue = Number(document.getElementById('debt-balance').value);
+  const rateValue = Number(document.getElementById('debt-rate').value);
+  const monthlyValue = Number(document.getElementById('debt-monthly').value);
+  if (!name || ![originalValue,balanceValue,rateValue,monthlyValue].every(Number.isFinite) ||
+      originalValue < 0 || balanceValue < 0 || rateValue < 0 || monthlyValue < 0) {
+    showToast('Enter a debt name and valid non-negative values.', 'warn'); return;
+  }
   const d = {
     id: editId||Date.now(),
     name, type: document.getElementById('debt-type').value,
-    original: parseFloat(document.getElementById('debt-original').value)||0,
-    balance:  parseFloat(document.getElementById('debt-balance').value)||0,
-    rate:     parseFloat(document.getElementById('debt-rate').value)||0,
-    monthly:  parseFloat(document.getElementById('debt-monthly').value)||0,
+    original: originalValue,
+    balance: balanceValue,
+    rate: rateValue,
+    monthly: monthlyValue,
     due:      document.getElementById('debt-due').value,
     note:     document.getElementById('debt-note').value.trim(),
     created_at: new Date().toISOString(),
@@ -21175,7 +21177,7 @@ function topUpGoal(id) {
     transactions.push({
       id: Date.now(),
       desc: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> Saved to: ' + g.name,
-      date: new Date().toISOString().split('T')[0],
+      date: FinanceOSCore.localDateKey(new Date()),
       cat: 'savings',
       type: 'expense',
       amount: -Math.abs(amt),
@@ -21469,8 +21471,8 @@ window.addEventListener('appinstalled', () => {
   const now = new Date();
   const fromEl = document.getElementById('analyticsFrom');
   const toEl   = document.getElementById('analyticsTo');
-  if (fromEl) fromEl.value = now.toISOString().substring(0,7)+'-01';
-  if (toEl)   toEl.value   = now.toISOString().split('T')[0];
+  if (fromEl) fromEl.value = FinanceOSCore.localMonthKey(now)+'-01';
+  if (toEl)   toEl.value   = FinanceOSCore.localDateKey(now);
   const tg = document.getElementById('tax-gross');
   if (tg) tg.value = SETTINGS.income;
 })();
@@ -21481,80 +21483,59 @@ window.addEventListener('appinstalled', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 function getBizFinancialContext() {
-  // Pull ALL live financial data into one object for AI context + scoring
   const s = getStats();
   const portfolio = getFpPortfolio();
   const monthlySaved = fpGetMonthlySaved();
   const freedomAge = fpGetCurrentFreedomAge();
   const ageNow = fpGetAgeNow();
 
-  // Debts
   let debtsArr = [];
-  try { debtsArr = JSON.parse(localStorage.getItem('fos_debts') || '[]'); } catch(e){}
-  const totalDebt = debtsArr.reduce((s,d) => s + (d.balance||0), 0);
-  const monthlyDebtPayments = debtsArr.reduce((s,d) => s + (d.monthly||0), 0);
+  try { debtsArr = JSON.parse(localStorage.getItem('fos_debts') || '[]'); } catch(e) {}
+  const totalDebt = debtsArr.reduce((sum, d) => sum + (Number(d.balance) || 0), 0);
+  const monthlyDebtPayments = debtsArr.reduce((sum, d) => sum + (Number(d.monthly) || 0), 0);
 
-  // Emergency fund
+  const liquidAssets = assets.filter(a => ['cash','emergency_fund'].includes(a.type))
+    .reduce((sum, a) => sum + Math.max(0, Number(a.value) || 0), 0);
   const efAsset = getEmergencyFundAsset();
-  const efVal = efAsset?.value || 0;
+  const efVal = Math.max(0, Number(efAsset?.value) || 0);
   const efTarget = s.expenses * 3;
-  const efMonths = efTarget > 0 ? (efVal / (efTarget / 3)).toFixed(1) : '0';
+  const efMonths = s.expenses > 0 ? efVal / s.expenses : 0;
+  const capitalAvailable = FinanceOSCore.calculateBusinessCapitalAvailable(liquidAssets, efTarget);
+  const runwayMonths = FinanceOSCore.calculateRunwayMonths(liquidAssets, s.expenses);
 
-  // Subscriptions
   let subsArr = [];
-  try { subsArr = JSON.parse(localStorage.getItem('fos_subs') || '[]'); } catch(e){}
-  const activeSubs = subsArr.filter(s => s.status === 'active');
-  const subMonthlyCost = activeSubs.reduce((sum,s) => sum + subMonthlyAmount(s), 0);
+  try { subsArr = JSON.parse(localStorage.getItem('fos_subs') || '[]'); } catch(e) {}
+  const activeSubs = subsArr.filter(sub => sub.status === 'active');
+  const subMonthlyCost = activeSubs.reduce((sum, sub) => sum + subMonthlyAmount(sub), 0);
 
-  // Savings goals
   let goalsArr = [];
-  try { goalsArr = JSON.parse(localStorage.getItem('fos_goals') || '[]'); } catch(e){}
-  const totalGoalTarget = goalsArr.reduce((s,g) => s + (g.target||0), 0);
-  const totalGoalSaved  = goalsArr.reduce((s,g) => s + (g.saved||0), 0);
+  try { goalsArr = JSON.parse(localStorage.getItem('fos_goals') || '[]'); } catch(e) {}
+  const totalGoalTarget = goalsArr.reduce((sum, goal) => sum + (Number(goal.target) || 0), 0);
+  const totalGoalSaved = goalsArr.reduce((sum, goal) => sum + (Number(goal.saved) || 0), 0);
 
-  // Investments
   let investArr = [];
-  try { investArr = JSON.parse(localStorage.getItem('finOS_investments') || '[]'); } catch(e){}
-  const investTotal = investArr.reduce((s,i) => s + (i.currentValue || i.capital || 0), 0);
+  try { investArr = JSON.parse(localStorage.getItem('finOS_investments') || '[]'); } catch(e) {}
+  const investTotal = investArr.reduce((sum, investment) =>
+    sum + (Number(investment.currentValue || investment.capital) || 0), 0);
 
   return {
-    // Core financials
-    income: s.income,
-    expenses: s.expenses,
-    netWorth: s.netWorth,
-    savingsRate: parseInt(s.savingsRate),
-    monthlySaved,
-    totalAssets: s.totalAssets,
-    portfolio,
-    investTotal,
-
-    // Debt picture
-    totalDebt,
-    monthlyDebtPayments,
-    debtCount: debtsArr.length,
-    debtToIncome: s.income > 0 ? Math.round(totalDebt / (s.income * 12) * 100) : 0,
-
-    // Emergency fund
-    efVal, efTarget, efMonths: parseFloat(efMonths),
-    efStatus: parseFloat(efMonths) >= 3 ? 'good' : parseFloat(efMonths) >= 1 ? 'warn' : 'bad',
-
-    // Subscriptions
+    income: s.income, expenses: s.expenses, netWorth: s.netWorth,
+    savingsRate: parseInt(s.savingsRate, 10), monthlySaved,
+    totalAssets: s.totalAssets, portfolio, investTotal, liquidAssets,
+    capitalAvailable, runwayMonths,
+    totalDebt, monthlyDebtPayments, debtCount: debtsArr.length,
+    debtToIncome: FinanceOSCore.calculateDebtToIncome(monthlyDebtPayments, s.income),
+    efVal, efTarget, efMonths,
+    efStatus: efMonths >= 3 ? 'good' : efMonths >= 1 ? 'warn' : 'bad',
     subMonthlyCost,
     subPctIncome: s.income > 0 ? Math.round(subMonthlyCost / s.income * 100) : 0,
-
-    // Goals
     totalGoalTarget, totalGoalSaved, goalCount: goalsArr.length,
-
-    // Freedom path
-    freedomAge, ageNow,
-    freedomNumber: SETTINGS.freedomNumber,
-    freedomPct: Math.min(100, Math.round(portfolio / SETTINGS.freedomNumber * 100)),
-
-    // Settings
-    annualReturn: SETTINGS.annualReturn,
-    name: SETTINGS.name,
+    freedomAge, ageNow, freedomNumber: SETTINGS.freedomNumber,
+    freedomPct: SETTINGS.freedomNumber > 0 ? Math.min(100, Math.round(portfolio / SETTINGS.freedomNumber * 100)) : 0,
+    annualReturn: SETTINGS.annualReturn, name: SETTINGS.name,
   };
 }
+
 
 function calcBizReadiness(ctx, bizStartup) {
   // Score 0-100 across 5 axes, weighted
@@ -21564,7 +21545,7 @@ function calcBizReadiness(ctx, bizStartup) {
   const canFundScore = (() => {
     // FIX 6: ctx.netWorth already has debt SUBTRACTED. Do NOT subtract totalDebt again.
     // Old code: ctx.netWorth - ctx.totalDebt - ctx.efTarget (debt counted twice = wrong score)
-    const available = Math.max(0, ctx.netWorth - ctx.efTarget);
+    const available = Number.isFinite(ctx.capitalAvailable) ? ctx.capitalAvailable : FinanceOSCore.calculateBusinessCapitalAvailable(ctx.liquidAssets || 0, ctx.efTarget);
     if (startup === 0) return 80;
     const ratio = available / startup;
     if (ratio >= 2)   return 100;
@@ -21596,10 +21577,10 @@ function calcBizReadiness(ctx, bizStartup) {
 
   // 4. Monthly Runway (15%) — if biz fails, how long can they survive on savings?
   const runwayScore = (() => {
-    const months = ctx.expenses > 0 ? ctx.monthlySaved / ctx.expenses : 0;
-    if (months >= 0.3) return 100;
-    if (months >= 0.15) return 70;
-    if (months >= 0.05) return 40;
+    const months = Number(ctx.runwayMonths) || 0;
+    if (months >= 6) return 100;
+    if (months >= 3) return 70;
+    if (months >= 1) return 40;
     return 15;
   })();
 
@@ -22437,7 +22418,7 @@ const _QS_STEPS = [
         </div>
         <div>
           <label style="font-size:11px;color:var(--textdim);font-weight:600;display:block;margin-bottom:6px;">DATE</label>
-          <input class="form-input" id="qs-date" type="date" value="${new Date().toISOString().split('T')[0]}"/>
+          <input class="form-input" id="qs-date" type="date" value="${FinanceOSCore.localDateKey(new Date())}"/>
         </div>
       </div>
       <div style="background:rgba(96,165,250,.07);border:1px solid rgba(96,165,250,.2);border-radius:10px;padding:10px 12px;">
@@ -22450,7 +22431,7 @@ const _QS_STEPS = [
       const desc = document.getElementById('qs-desc')?.value.trim();
       const amt  = parseFloat(document.getElementById('qs-amount')?.value);
       const cat  = document.getElementById('qs-cat')?.value || 'other';
-      const date = document.getElementById('qs-date')?.value || new Date().toISOString().split('T')[0];
+      const date = document.getElementById('qs-date')?.value || FinanceOSCore.localDateKey(new Date());
       if (desc && Number.isFinite(amt) && amt > 0) {
         transactions.push({ id: Date.now(), desc, date, cat, type: 'expense', amount: -Math.abs(amt), created_at: new Date().toISOString(), source: 'quick_start' });
         dbSave();
@@ -26939,7 +26920,7 @@ function v43SaveFHSSnapshot() {
       const n = new Date();
       from.value = n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-01';
     }
-    if (to && !to.value) to.value = new Date().toISOString().split('T')[0];
+    if (to && !to.value) to.value = FinanceOSCore.localDateKey(new Date());
   }
   setTimeout(setDefaults, 700);
   const page = document.getElementById('page-analytics');
@@ -27971,3 +27952,4 @@ body.light-mode .page#page-settings > div[style*="position:sticky"] {
 </style>
 </body>
 </html>
+<script async data-explicit-opt-in="true" data-deployment-id="dpl_G9KxdprxuFZk2CbVJdjHHGAj7Fcn" src="https://vercel.live/_next-live/feedback/feedback.js"></script>
