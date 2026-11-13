@@ -1,4 +1,4 @@
-const CACHE_NAME = 'financeos-v50';
+const CACHE_NAME = 'financeos-v48';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', event => {
