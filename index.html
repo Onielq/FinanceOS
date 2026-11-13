@@ -21109,29 +21109,38 @@ function submitFeedback(type, label) {
 
 /* ── 8. SYSTEM STATUS MODAL ── */
 function checkSystemStatus() {
-  var checks = [
-    { name:'Core App Engine', status:'operational' },
-    { name:'AI Advisor (Claude)', status:'operational' },
-    { name:'Data Sync', status:'operational' },
-    { name:'Push Notifications', status:'degraded' },
-    { name:'Market Data Feed', status:'operational' },
-    { name:'Authentication', status:'operational' },
+  const storageAvailable = typeof localStorage !== 'undefined' && typeof indexedDB !== 'undefined';
+  const checks = [
+    { name:'FinanceOS app shell', status:'running' },
+    { name:'Browser storage', status:storageAvailable ? 'available' : 'unavailable' },
+    { name:'Local profile lock', status:AUTH.get() ? 'device' : 'guest' },
+    { name:'AI Advisor', status:'disconnected' },
+    { name:'Cloud backup & sync', status:'disconnected' },
+    { name:'Server authentication', status:'disconnected' },
+    { name:'Email / support delivery', status:'disconnected' },
   ];
-  var colors = { operational:'var(--green)', degraded:'var(--gold)', outage:'var(--red)' };
-  var labels = { operational:'● Operational', degraded:'● Degraded', outage:'● Outage' };
-  var rows = checks.map(function(c){
-    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 13px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;">'
-      + '<div style="font-size:12px;font-weight:500;">'+c.name+'</div>'
-      + '<div style="font-size:11px;font-weight:700;color:'+colors[c.status]+';">'+labels[c.status]+'</div></div>';
+  const states = {
+    running:      {label:'● Running', color:'var(--green)'},
+    available:    {label:'● Available', color:'var(--green)'},
+    device:       {label:'● This device only', color:'var(--gold)'},
+    guest:        {label:'● Guest / no password', color:'var(--gold)'},
+    unavailable:  {label:'● Unavailable', color:'var(--red)'},
+    disconnected: {label:'● Not connected', color:'var(--textdim)'},
+  };
+  const rows = checks.map(function(check) {
+    const state = states[check.status] || states.disconnected;
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 13px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;">'
+      + '<div style="font-size:12px;font-weight:500;">' + check.name + '</div>'
+      + '<div style="font-size:11px;font-weight:700;color:' + state.color + ';text-align:right;">' + state.label + '</div></div>';
   }).join('');
-  var body = '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(163,230,53,.08);border:1px solid rgba(163,230,53,.25);border-radius:12px;margin-bottom:16px;">'
-    + '<div style="font-size:22px;">✅</div><div><div style="font-size:13px;font-weight:700;color:var(--green);">All Major Systems Operational</div>'
-    + '<div style="font-size:11px;color:var(--textdim);">Last checked: just now</div></div></div>'
-    + '<div style="display:flex;flex-direction:column;gap:6px;">'+rows+'</div>'
-    + '<div style="margin-top:12px;font-size:11px;color:var(--textdim);text-align:center;">30-day uptime: <strong style="color:var(--green);">99.96%</strong></div>';
-  var footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-status\')">Close</button>'
-    + '<button class="btn-primary" style="flex:2;" onclick="_closeModal(\'modal-status\');showToast(\'✅ All systems nominal\',\'success\')">Looks Good</button>';
-  _modal('modal-status', '🟢 System Status', body, footer, 'var(--green)');
+
+  const body = '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(96,165,250,.07);border:1px solid rgba(96,165,250,.2);border-radius:12px;margin-bottom:16px;">'
+    + '<div style="font-size:22px;">ℹ️</div><div><div style="font-size:13px;font-weight:700;color:var(--text);">Local app status</div>'
+    + '<div style="font-size:11px;color:var(--textdim);">This panel checks browser capabilities and configured integrations. It does not measure uptime.</div></div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:6px;">' + rows + '</div>'
+    + '<div style="margin-top:12px;font-size:11px;color:var(--textdim);text-align:center;">Transactions are stored in this browser. Export a backup regularly.</div>';
+  const footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-status\')">Close</button>';
+  _modal('modal-status', 'System Status', body, footer, 'var(--blue)');
 }
 
 /* ── 9. RATING MODAL ── */
