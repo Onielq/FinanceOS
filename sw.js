@@ -1,5 +1,5 @@
-const CACHE_NAME = 'financeos-v48';
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
+const CACHE_NAME = 'financeOS-v48';
+const APP_SHELL = ['/', '/index.html', '/financeos-core.js', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -31,6 +31,20 @@ self.addEventListener('fetch', event => {
         }
         return response;
       }).catch(() => caches.match('/index.html').then(cached => cached || Response.error()))
+    );
+    return;
+  }
+
+  // Keep the shared logic module and app-shell assets available offline.
+  if (APP_SHELL.includes(url.pathname)) {
+    event.respondWith(
+      caches.match(request).then(cached => cached || fetch(request).then(response => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, copy)).catch(() => {});
+        }
+        return response;
+      }))
     );
   }
 });
