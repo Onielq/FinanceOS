@@ -10058,23 +10058,31 @@ const AppState = {
 // Old approach: hardcoded array that never updated — charts showed stale data.
 // New approach: derive last 7 months from the transactions array on every call.
 function buildMonthlyHistory() {
-  const TRANSFER_CATS = ['savings','investment','sacco','umworo','momo'];
   const now = new Date();
+  const currentPeriod = getFiscalPeriod(now);
+  const currentStart = new Date(currentPeriod.start + 'T12:00:00');
   const months = [];
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = FinanceOSCore.localMonthKey(d);
-    const label = d.toLocaleString('default',{month:'short'});
-    const txMonth = transactions.filter(t => t.date.startsWith(key));
-    const inc  = txMonth.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0)
-               || (i === 0 ? SETTINGS.income : 0);
-    const exp  = Math.abs(txMonth
-                   .filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat))
-                   .reduce((s,t)=>s+t.amount,0));
-    months.push({ month: label, income: inc || (key <= FinanceOSCore.localMonthKey(now) ? SETTINGS.income : 0), expenses: exp });
+    const period = i === 0 ? currentPeriod : getFiscalPeriod(new Date(
+      currentStart.getFullYear(), currentStart.getMonth() - (i - 1),
+      currentStart.getDate() - 1, 12
+    ));
+    const label = new Date(period.start + 'T12:00:00').toLocaleString('default', { month: 'short' });
+    const txPeriod = transactions.filter(t => t.date >= period.start && t.date <= period.end);
+    const income = txPeriod.filter(t => t.type === 'income')
+      .reduce((sum, t) => sum + Math.abs(Number(t.amount) || 0), 0);
+    const expenses = Math.abs(txPeriod
+      .filter(t => t.type === 'expense' && !FinanceOSCore.TRANSFER_CATEGORIES.includes(t.cat))
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0));
+    months.push({
+      month: label, periodStart: period.start, periodEnd: period.end,
+      income: income || (i === 0 ? Math.max(0, Number(SETTINGS.income) || 0) : 0),
+      expenses
+    });
   }
   return months;
 }
+
 // Keep the original array as a fallback — will be overwritten on renderAnalytics
 const monthlyHistory = buildMonthlyHistory();
 
@@ -10128,7 +10136,7 @@ function snapshotNetWorthIfNewMonth() {
   try {
     const history = getNetWorthHistory();
     const now = new Date();
-    const key = FinanceOSCore.localMonthKey(now); // YYYY-MM
+    const key = getFiscalPeriod(now).start; // pay-cycle period start
     if (history.length && history[history.length-1].month === key) return; // already snapped this month
     const stats = (function() {
       const totalAssets = assets.reduce((s,a)=>s+a.value,0);
@@ -10678,6 +10686,29 @@ function getMonthlyExpenses() {
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0));
 }
 
+function getAverageMonthlyExpenses(periodCount = 3) {
+  const current = getFiscalPeriod(new Date());
+  const currentStart = new Date(current.start + 'T12:00:00');
+  let anchor = new Date(currentStart.getFullYear(), currentStart.getMonth(), currentStart.getDate() - 1, 12);
+  let total = 0, completePeriods = 0;
+
+  for (let i = 0; i < Math.max(1, Math.min(12, Number(periodCount) || 3)); i++) {
+    const period = getFiscalPeriod(anchor);
+    const entries = transactions.filter(t => t.date >= period.start && t.date <= period.end);
+    if (entries.length) {
+      total += Math.abs(entries
+        .filter(t => t.type === 'expense' && !FinanceOSCore.TRANSFER_CATEGORIES.includes(t.cat))
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0));
+      completePeriods++;
+    }
+    const start = new Date(period.start + 'T12:00:00');
+    anchor = new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1, 12);
+  }
+  return completePeriods ? total / completePeriods : getMonthlyExpenses();
+}
+
+
+
 function getEmergencyFundAsset() {
   return assets.find(a => a.type === 'emergency_fund')
       || assets.find(a => a.name.toLowerCase().includes('emergency'))
@@ -10688,97 +10719,76 @@ function getEmergencyFundAsset() {
 function getStats() {
   const income = getMonthlyIncome();
   const expenses = getMonthlyExpenses();
-  const totalAssets = assets.reduce((s,a)=>s+a.value,0);
-  // FIX 5: Same deduplication guard as getFpPortfolio — exclude Investment Portal entries
-  // whose name already exists in the Assets array, preventing double-counting in net worth.
-  const TRANSFER_CATS = ['savings','investment','sacco','umworo','momo'];
-  const invPortfolioExtra = (function() {
-    try {
-      const invs = JSON.parse(localStorage.getItem('finOS_investments')||'[]');
-      const assetKeys = new Set(assets.map(a => (a.name||'').toLowerCase().trim()));
-      return invs
-        .filter(inv => !assetKeys.has((inv.name||'').toLowerCase().trim()))
-        .reduce((s,inv) => s + (inv.currentValue || inv.capital || 0), 0);
-    } catch(e) { return 0; }
-  }());
-  // Subtract tracked debts for true net worth
-  const totalDebt = (function() {
-    try {
-      const ds = JSON.parse(localStorage.getItem('fos_debts')||'[]');
-      return ds.reduce((s,d) => s + (d.balance || 0), 0);
-    } catch(e) { return 0; }
-  }());
-  const netWorth = (() => {
-    try {
-      return FinanceOSCore.calculateNetWorth(
-        assets,
-        JSON.parse(localStorage.getItem('finOS_investments') || '[]'),
-        JSON.parse(localStorage.getItem('fos_debts') || '[]')
-      );
-    } catch(e) { return totalAssets + invPortfolioExtra - totalDebt; }
-  })();
-  const savingsRate = income>0 ? ((income-expenses)/income*100).toFixed(0) : 0;
-  // Always use actual current calendar month — never derive from latest transaction date
+  const totalAssets = assets.reduce((sum, asset) => sum + Math.max(0, Number(asset.value) || 0), 0);
+  let investments = [], debtsList = [];
+  try { investments = JSON.parse(localStorage.getItem('finOS_investments') || '[]'); } catch(e) {}
+  try { debtsList = JSON.parse(localStorage.getItem('fos_debts') || '[]'); } catch(e) {}
+  const netWorth = FinanceOSCore.calculateNetWorth(assets, investments, debtsList);
+  const savingsRate = income > 0 ? ((income - expenses) / income * 100).toFixed(0) : 0;
+
   const now = new Date();
-  const curMonth  = FinanceOSCore.localMonthKey(now);
-  const prevDate  = new Date(now.getFullYear(), now.getMonth()-1, 1);
-  const prevMonth = prevDate.toISOString().substring(0,7);
-  const thisMo = transactions.filter(t=>t.date.startsWith(curMonth));
-  const lastMo = transactions.filter(t=>t.date.startsWith(prevMonth));
-  // FIX 5b: Exclude savings/investment transfers from "Spent This Month" display — they are not spending
-  const isDisplayExpense = t => t.type==='expense' && !TRANSFER_CATS.includes(t.cat);
-  const thisMoExp = Math.abs(thisMo.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
-  const lastMoExp = Math.abs(lastMo.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
+  const currentPeriod = getFiscalPeriod(now);
+  const currentStart = new Date(currentPeriod.start + 'T12:00:00');
+  const previousAnchor = new Date(currentStart.getFullYear(), currentStart.getMonth(), currentStart.getDate() - 1, 12);
+  const previousPeriod = getFiscalPeriod(previousAnchor);
+  const periodTransactions = period => transactions.filter(t => t.date >= period.start && t.date <= period.end);
+  const thisMo = periodTransactions(currentPeriod);
 
-  // v21: Rolling 12-month expense history for trend analysis.
-  // Only 2-month lookback caused false alarms on seasonal patterns (school fees,
-  // harvest months, umuganda) because it had no baseline to compare against.
-  const LOOKBACK_MONTHS = 12;
-  const monthlyHistory = [];
-  for (let i = 1; i <= LOOKBACK_MONTHS; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = d.toISOString().substring(0, 7);
-    const moTx = transactions.filter(t => t.date.startsWith(key));
-    const moExp = Math.abs(moTx.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
-    const moInc = moTx.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-    if (moExp > 0 || moInc > 0) monthlyHistory.push({ month: key, expenses: moExp, income: moInc });
+  const elapsedDays = Math.max(1, Math.floor(
+    (new Date(FinanceOSCore.localDateKey(now) + 'T12:00:00') - currentStart) / 86400000
+  ) + 1);
+  const priorCutoffDate = new Date(previousPeriod.start + 'T12:00:00');
+  priorCutoffDate.setDate(priorCutoffDate.getDate() + elapsedDays - 1);
+  const priorCutoff = priorCutoffDate < new Date(previousPeriod.end + 'T12:00:00')
+    ? FinanceOSCore.localDateKey(priorCutoffDate) : previousPeriod.end;
+  const lastMo = transactions.filter(t => t.date >= previousPeriod.start && t.date <= priorCutoff);
+
+  const isDisplayExpense = t => t.type === 'expense' && !FinanceOSCore.TRANSFER_CATEGORIES.includes(t.cat);
+  const thisMoExp = Math.abs(thisMo.filter(isDisplayExpense).reduce((sum, t) => sum + (Number(t.amount) || 0), 0));
+  const lastMoExp = Math.abs(lastMo.filter(isDisplayExpense).reduce((sum, t) => sum + (Number(t.amount) || 0), 0));
+
+  const history = [];
+  for (let i = 1; i <= 12; i++) {
+    const anchor = new Date(currentStart.getFullYear(), currentStart.getMonth() - (i - 1), currentStart.getDate() - 1, 12);
+    const period = getFiscalPeriod(anchor);
+    const periodTx = periodTransactions(period);
+    const periodExpenses = Math.abs(periodTx.filter(isDisplayExpense).reduce((sum, t) => sum + (Number(t.amount) || 0), 0));
+    const periodIncome = periodTx.filter(t => t.type === 'income').reduce((sum, t) => sum + Math.abs(Number(t.amount) || 0), 0);
+    if (periodTx.length) history.push({
+      month: period.start, periodStart: period.start, periodEnd: period.end,
+      expenses: periodExpenses, income: periodIncome
+    });
   }
-  // Rolling 6-month average — more stable baseline than single prior month
-  const rolling6 = monthlyHistory.slice(0, 6);
-  const rollingAvgExp = rolling6.length > 0
-    ? rolling6.reduce((s,m)=>s+m.expenses, 0) / rolling6.length
+
+  const rolling6 = history.slice(0, 6);
+  const rollingAvgExp = rolling6.length
+    ? rolling6.reduce((sum, item) => sum + item.expenses, 0) / rolling6.length
     : lastMoExp;
-
-  // Trend vs rolling average (not just last month — avoids false seasonal spikes)
   const expTrend = rollingAvgExp > 0 ? (((thisMoExp - rollingAvgExp) / rollingAvgExp) * 100).toFixed(0) : 0;
-  // Keep lastMoExp for UI display compatibility; add rollingAvgExp for smarter alerts
-  const expTrendVsLastMonth = lastMoExp > 0 ? (((thisMoExp-lastMoExp)/lastMoExp)*100).toFixed(0) : 0;
+  const expTrendVsLastMonth = lastMoExp > 0 ? (((thisMoExp - lastMoExp) / lastMoExp) * 100).toFixed(0) : 0;
 
-  // v21: Rwanda seasonal context.
-  // Months with structurally elevated spending — alerts should not fire for known patterns.
-  // Jan/Sep: school fees. Apr/May: crop planting costs. Oct/Nov: harvest-season social events.
   const RWANDA_HIGH_SPEND_MONTHS = {
-    1:  { label: 'January school fees', categories: ['family','education'] },
-    4:  { label: 'Planting season costs', categories: ['food','family'] },
-    5:  { label: 'Planting season costs', categories: ['food','family'] },
-    9:  { label: 'September school fees', categories: ['family','education'] },
-    10: { label: 'Harvest-season events', categories: ['food','entertainment'] },
-    11: { label: 'End-of-year social spending', categories: ['entertainment','shopping'] },
-    12: { label: 'Year-end celebrations', categories: ['entertainment','shopping','family'] },
+    1: { label:'January school fees', categories:['family','education'] },
+    4: { label:'Planting season costs', categories:['food','family'] },
+    5: { label:'Planting season costs', categories:['food','family'] },
+    9: { label:'September school fees', categories:['family','education'] },
+    10: { label:'Harvest-season events', categories:['food','entertainment'] },
+    11: { label:'End-of-year social spending', categories:['entertainment','shopping'] },
+    12: { label:'Year-end celebrations', categories:['entertainment','shopping','family'] }
   };
-  const currentMonthNum = now.getMonth() + 1; // 1-indexed
-  const seasonalContext = RWANDA_HIGH_SPEND_MONTHS[currentMonthNum] || null;
-
-  // catBreakdown: current month only so pct correctly reflects this month's spend share
-  // FIX 8: Exclude savings/investment transfers from spending category breakdown
+  const seasonalContext = RWANDA_HIGH_SPEND_MONTHS[now.getMonth() + 1] || null;
   const catMap = {};
-  transactions.filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat) && t.date.startsWith(curMonth))
-    .forEach(t=>{ catMap[t.cat]=(catMap[t.cat]||0)+Math.abs(t.amount); });
-  const catBreakdown = Object.entries(catMap).map(([cat,val])=>({
-    cat, val, label:CATS[cat]?.label||cat, color:CATS[cat]?.color||'#666', icon:CATS[cat]?.icon||'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
-    pct:thisMoExp>0?(val/thisMoExp*100).toFixed(0):0
-  })).sort((a,b)=>b.val-a.val);
-  return { income, expenses, netWorth, savingsRate, thisMoExp, lastMoExp, expTrend, expTrendVsLastMonth, catBreakdown, totalAssets, monthlyHistory, rollingAvgExp, seasonalContext };
+  thisMo.filter(isDisplayExpense).forEach(t => { catMap[t.cat] = (catMap[t.cat] || 0) + Math.abs(Number(t.amount) || 0); });
+  const catBreakdown = Object.entries(catMap).map(([cat, value]) => ({
+    cat, val:value, label:CATS[cat]?.label || cat, color:CATS[cat]?.color || '#666',
+    icon:CATS[cat]?.icon || '', pct:thisMoExp > 0 ? (value / thisMoExp * 100).toFixed(0) : 0
+  })).sort((a, b) => b.val - a.val);
+
+  return {
+    income, expenses, netWorth, savingsRate, thisMoExp, lastMoExp,
+    expTrend, expTrendVsLastMonth, catBreakdown, totalAssets,
+    monthlyHistory:history, rollingAvgExp, seasonalContext, fiscalPeriod:currentPeriod
+  };
 }
 
 // The one function every feature uses to calculate freedom age
@@ -16761,7 +16771,7 @@ function renderSmsPage() {
     const color = topAlert.level === 'critical' ? 'var(--red)' : 'var(--gold)';
     bannerEl.style.borderColor = topAlert.level === 'critical' ? 'rgba(248,113,113,.3)' : 'rgba(212,168,67,.3)';
     bannerEl.style.background = topAlert.level === 'critical' ? 'rgba(248,113,113,.05)' : 'rgba(212,168,67,.05)';
-    bannerEl.innerHTML = `<span style="font-weight:700;color:${color}">${topAlert.icon} NEXUS Alert</span> — ${topAlert.msg}` +
+    bannerEl.innerHTML = `<span style="font-weight:700;color:${color}">${escapeHTML(topAlert.icon)} NEXUS Alert</span> — ${escapeHTML(topAlert.msg)}` +
       (brain.alerts.length > 1 ? ` <span style="color:var(--textdim)">+${brain.alerts.length-1} more</span>` : '');
   } else if (bannerEl) {
     bannerEl.style.display = 'none';
@@ -20666,7 +20676,8 @@ function renderAnalytics() {
   const fromEl = document.getElementById('analyticsFrom');
   const toEl   = document.getElementById('analyticsTo');
   const now    = new Date();
-  const from   = fromEl?.value || FinanceOSCore.localMonthKey(now)+'-01';
+  const currentPeriod = getFiscalPeriod(now);
+  const from   = fromEl?.value || currentPeriod.start;
   const to     = toEl?.value   || FinanceOSCore.localDateKey(now);
 
   const inRange = transactions.filter(t => t.date >= from && t.date <= to);
@@ -20692,7 +20703,7 @@ function renderAnalytics() {
   // Category bars
   const catEl = document.getElementById('analyticsCatBars');
   if (catEl) {
-    const expenses = inRange.filter(t=>t.type==='expense');
+    const expenses = financialRange.filter(t=>t.type==='expense');
     const catMap = {};
     expenses.forEach(t => { catMap[t.cat] = (catMap[t.cat]||0)+Math.abs(t.amount); });
     const total = Object.values(catMap).reduce((a,b)=>a+b,0)||1;
@@ -20715,7 +20726,8 @@ function renderAnalytics() {
     const days = Math.max(1, Math.round((new Date(to)-new Date(from))/86400000));
     const priorTo   = new Date(new Date(from)-86400000).toISOString().split('T')[0];
     const priorFrom = new Date(new Date(from)-(days+1)*86400000).toISOString().split('T')[0];
-    const prior = transactions.filter(t=>t.date>=priorFrom&&t.date<=priorTo);
+    const prior = transactions.filter(t=>t.date>=priorFrom&&t.date<=priorTo &&
+      (t.type !== 'expense' || !FinanceOSCore.TRANSFER_CATEGORIES.includes(t.cat)));
     const priorInc = prior.filter(t=>t.type==='income').reduce((s,t)=>s+Math.abs(t.amount),0);
     const priorExp = prior.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
     const rows = [
@@ -21593,17 +21605,18 @@ function getBizFinancialContext() {
 
   const liquidAssets = assets.filter(a => ['cash','emergency_fund'].includes(a.type))
     .reduce((sum, a) => sum + Math.max(0, Number(a.value) || 0), 0);
+  const monthlyExpenseBaseline = getAverageMonthlyExpenses(3);
   const efAsset = getEmergencyFundAsset();
   const efVal = Math.max(0, Number(efAsset?.value) || 0);
-  const efTarget = s.expenses * 3;
-  const efMonths = s.expenses > 0 ? efVal / s.expenses : 0;
+  const efTarget = monthlyExpenseBaseline * 3;
+  const efMonths = monthlyExpenseBaseline > 0 ? efVal / monthlyExpenseBaseline : 0;
   const capitalAvailable = FinanceOSCore.calculateBusinessCapitalAvailable(liquidAssets, efTarget);
-  const runwayMonths = FinanceOSCore.calculateRunwayMonths(liquidAssets, s.expenses);
+  const runwayMonths = FinanceOSCore.calculateRunwayMonths(liquidAssets, monthlyExpenseBaseline);
 
   let subsArr = [];
   try { subsArr = JSON.parse(localStorage.getItem('fos_subs') || '[]'); } catch(e) {}
-  const activeSubs = subsArr.filter(sub => sub.status === 'active');
-  const subMonthlyCost = activeSubs.reduce((sum, sub) => sum + subMonthlyAmount(sub), 0);
+  const subMonthlyCost = subsArr.filter(sub => sub.status === 'active')
+    .reduce((sum, sub) => sum + subMonthlyAmount(sub), 0);
 
   let goalsArr = [];
   try { goalsArr = JSON.parse(localStorage.getItem('fos_goals') || '[]'); } catch(e) {}
@@ -21616,23 +21629,22 @@ function getBizFinancialContext() {
     sum + (Number(investment.currentValue || investment.capital) || 0), 0);
 
   return {
-    income: s.income, expenses: s.expenses, netWorth: s.netWorth,
-    savingsRate: parseInt(s.savingsRate, 10), monthlySaved,
-    totalAssets: s.totalAssets, portfolio, investTotal, liquidAssets,
+    income:s.income, expenses:s.expenses, monthlyExpenseBaseline,
+    netWorth:s.netWorth, savingsRate:parseInt(s.savingsRate,10), monthlySaved,
+    totalAssets:s.totalAssets, portfolio, investTotal, liquidAssets,
     capitalAvailable, runwayMonths,
-    totalDebt, monthlyDebtPayments, debtCount: debtsArr.length,
-    debtToIncome: FinanceOSCore.calculateDebtToIncome(monthlyDebtPayments, s.income),
+    totalDebt, monthlyDebtPayments, debtCount:debtsArr.length,
+    debtToIncome:FinanceOSCore.calculateDebtToIncome(monthlyDebtPayments,s.income),
     efVal, efTarget, efMonths,
-    efStatus: efMonths >= 3 ? 'good' : efMonths >= 1 ? 'warn' : 'bad',
+    efStatus:efMonths>=3?'good':efMonths>=1?'warn':'bad',
     subMonthlyCost,
-    subPctIncome: s.income > 0 ? Math.round(subMonthlyCost / s.income * 100) : 0,
-    totalGoalTarget, totalGoalSaved, goalCount: goalsArr.length,
-    freedomAge, ageNow, freedomNumber: SETTINGS.freedomNumber,
-    freedomPct: SETTINGS.freedomNumber > 0 ? Math.min(100, Math.round(portfolio / SETTINGS.freedomNumber * 100)) : 0,
-    annualReturn: SETTINGS.annualReturn, name: SETTINGS.name,
+    subPctIncome:s.income>0?Math.round(subMonthlyCost/s.income*100):0,
+    totalGoalTarget,totalGoalSaved,goalCount:goalsArr.length,
+    freedomAge,ageNow,freedomNumber:SETTINGS.freedomNumber,
+    freedomPct:SETTINGS.freedomNumber>0?Math.min(100,Math.round(portfolio/SETTINGS.freedomNumber*100)):0,
+    annualReturn:SETTINGS.annualReturn,name:SETTINGS.name
   };
 }
-
 
 function calcBizReadiness(ctx, bizStartup) {
   // Score 0-100 across 5 axes, weighted
@@ -22789,10 +22801,9 @@ function openEmailSupportModal() {
   _modal('modal-email', '✉️ Email Support', body, footer, 'var(--blue)');
 }
 function sendSupportEmail() {
-  var msg = document.getElementById('supportEmailBody') && document.getElementById('supportEmailBody').value;
-  if (!msg || !msg.trim()) { showToast('Please write a message first','warn'); return; }
-  _closeModal('modal-email');
-  showToast("✅ Message sent — we'll reply within 24 hours",'success');
+  const msg = document.getElementById('supportEmailBody')?.value || '';
+  if (!msg.trim()) { showToast('Please write a message first.', 'warn'); return; }
+  showToast('Email support is not connected in this build. No message was sent. Copy your message to send it separately.', 'warn');
 }
 
 /* ── 7. FEEDBACK / REPORT / FEATURE / SURVEY MODAL ── */
@@ -22835,38 +22846,40 @@ function selectFbPriority(btn) {
   btn.style.background='rgba(96,165,250,.15)'; btn.style.color='var(--blue)'; btn.style.borderColor='rgba(96,165,250,.4)';
 }
 function submitFeedback(type, label) {
-  var msg = document.getElementById('fbBody') && document.getElementById('fbBody').value;
-  if (!msg || !msg.trim()) { showToast('Please add a message before submitting','warn'); return; }
-  _closeModal('modal-feedback');
-  var toasts = { feedback:'💙 Thanks for your feedback!', report:'🐛 Problem reported — our team will investigate', feature:'💡 Feature idea submitted — thanks!', survey:'📊 Survey submitted — thank you!' };
-  showToast(toasts[type]||'✅ Submitted, thank you!','success');
+  const msg = document.getElementById('fbBody')?.value || '';
+  if (!msg.trim()) { showToast('Please add a message before submitting.', 'warn'); return; }
+  showToast('Feedback submission is not connected in this build. No report was sent.', 'warn');
 }
 
 /* ── 8. SYSTEM STATUS MODAL ── */
+function closeSystemStatusModal() { _closeModal('modal-status'); }
+
 function checkSystemStatus() {
-  var checks = [
-    { name:'Core App Engine', status:'operational' },
-    { name:'AI Advisor (Claude)', status:'operational' },
-    { name:'Data Sync', status:'operational' },
-    { name:'Push Notifications', status:'degraded' },
-    { name:'Market Data Feed', status:'operational' },
-    { name:'Authentication', status:'operational' },
+  const checks = [
+    {name:'Core app',detail:'Loaded in this browser',status:'available'},
+    {name:'Local financial storage',detail:'IndexedDB + AES-GCM; local device only',status:'available'},
+    {name:'AI Advisor',detail:'Disabled until secure authentication and provider access are configured',status:'unavailable'},
+    {name:'Cloud sync',detail:'Not implemented',status:'unavailable'},
+    {name:'Google / Facebook sign-in',detail:'Not connected',status:'unavailable'},
+    {name:'Email recovery and support',detail:'Not connected',status:'unavailable'}
   ];
-  var colors = { operational:'var(--green)', degraded:'var(--gold)', outage:'var(--red)' };
-  var labels = { operational:'● Operational', degraded:'● Degraded', outage:'● Outage' };
-  var rows = checks.map(function(c){
-    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 13px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;">'
-      + '<div style="font-size:12px;font-weight:500;">'+c.name+'</div>'
-      + '<div style="font-size:11px;font-weight:700;color:'+colors[c.status]+';">'+labels[c.status]+'</div></div>';
+  const states = {
+    available:{color:'var(--green)',label:'Available'},
+    unavailable:{color:'var(--gold)',label:'Not connected'}
+  };
+  const rows = checks.map(item => {
+    const state = states[item.status];
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 13px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;">' +
+      '<div><div style="font-size:12px;font-weight:600;">' + escapeHTML(item.name) + '</div>' +
+      '<div style="font-size:10px;color:var(--textdim);margin-top:3px;">' + escapeHTML(item.detail) + '</div></div>' +
+      '<div style="font-size:11px;font-weight:700;color:' + state.color + ';white-space:nowrap;">' + state.label + '</div></div>';
   }).join('');
-  var body = '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(163,230,53,.08);border:1px solid rgba(163,230,53,.25);border-radius:12px;margin-bottom:16px;">'
-    + '<div style="font-size:22px;">✅</div><div><div style="font-size:13px;font-weight:700;color:var(--green);">All Major Systems Operational</div>'
-    + '<div style="font-size:11px;color:var(--textdim);">Last checked: just now</div></div></div>'
-    + '<div style="display:flex;flex-direction:column;gap:6px;">'+rows+'</div>'
-    + '<div style="margin-top:12px;font-size:11px;color:var(--textdim);text-align:center;">30-day uptime: <strong style="color:var(--green);">99.96%</strong></div>';
-  var footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-status\')">Close</button>'
-    + '<button class="btn-primary" style="flex:2;" onclick="_closeModal(\'modal-status\');showToast(\'✅ All systems nominal\',\'success\')">Looks Good</button>';
-  _modal('modal-status', '🟢 System Status', body, footer, 'var(--green)');
+  const body = '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(212,168,67,.07);border:1px solid rgba(212,168,67,.25);border-radius:12px;margin-bottom:16px;">' +
+    '<div style="font-size:22px;">ⓘ</div><div><div style="font-size:13px;font-weight:700;color:var(--text);">Local app status</div>' +
+    '<div style="font-size:11px;color:var(--textdim);">This is a capability summary, not a live uptime monitor.</div></div></div>' +
+    '<div style="display:flex;flex-direction:column;gap:6px;">' + rows + '</div>';
+  const footer = '<button class="btn-ghost" style="flex:1;" onclick="closeSystemStatusModal()">Close</button>';
+  _modal('modal-status', 'System Status', body, footer, 'var(--gold)');
 }
 
 /* ── 9. RATING MODAL ── */
@@ -22875,7 +22888,7 @@ function checkSystemStatus() {
 // Uses Web Share API when available (mobile), falls back to a WhatsApp
 // deep-link + clipboard copy on desktop.
 function shareFinanceOS() {
-  var msg = 'I\'ve been using FinanceOS to track my money — it\'s free, works offline, and has AI advice built in. Runs right in your browser, no install needed: ' + window.location.href;
+  var msg = 'I\'ve been using FinanceOS to track my money — it\'s free, works offline, and keeps financial records in your browser. Runs right in your browser, no install needed: ' + window.location.href;
   if (navigator.share) {
     navigator.share({ title: 'FinanceOS', text: msg, url: window.location.href })
       .catch(function(){});
@@ -28004,4 +28017,4 @@ body.light-mode .page#page-settings > div[style*="position:sticky"] {
 </style>
 </body>
 </html>
-<script async data-explicit-opt-in="true" data-deployment-id="dpl_G9KxdprxuFZk2CbVJdjHHGAj7Fcn" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_Cj1dSA2RVz6G9RDDtFsxdzw8tTBK" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_5G7HeJAjYofXTns4PySAsExungvj" src="https://vercel.live/_next-live/feedback/feedback.js"></script>
+<script async data-explicit-opt-in="true" data-deployment-id="dpl_G9KxdprxuFZk2CbVJdjHHGAj7Fcn" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_Cj1dSA2RVz6G9RDDtFsxdzw8tTBK" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_5G7HeJAjYofXTns4PySAsExungvj" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_CVcXYPKDtd7vFqWq95A5J9U8WceL" src="https://vercel.live/_next-live/feedback/feedback.js"></script>
