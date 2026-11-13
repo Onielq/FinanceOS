@@ -14886,16 +14886,42 @@ function nexusExtractSmsDate(text, matchIndex, matchLength) {
   return candidates[0]?.date || null;
 }
 
+function nexusResolveSmsBalance(parsed) {
+  const rows = parsed.filter(t => Number(t.balance) > 0 && /^\\d{4}-\\d{2}-\\d{2}$/.test(t.date || ''));
+  if (!rows.length) return { status: 'none' };
+
+  // A single stored balance cannot represent several bank accounts.
+  const allSources = [...new Set(rows.map(t => t.bank || 'Unknown'))];
+  if (allSources.length !== 1) return { status: 'ambiguous' };
+
+  const latestDate = rows.reduce(
+    (latest, row) => row.date > latest ? row.date : latest,
+    rows[0].date
+  );
+  const newestRows = rows.filter(row => row.date === latestDate);
+  const balances = [...new Set(newestRows.map(row => Number(row.balance)))];
+  if (balances.length !== 1) return { status: 'ambiguous' };
+
+  return {
+    status: 'ok',
+    balance: balances[0],
+    date: latestDate,
+    source: allSources[0],
+  };
+}
+
 // ── NEXUS Core Object ────────────────────────────────────────────────────────
 const NEXUS = {
   _activityLog: [],   // session log of parsed/imported SMS
   _lastBalance: null, // most recent confirmed bank balance from SMS
+  _lastBalanceUpdated: false,
+  _lastBalanceAmbiguous: false,
   _brainScore: null,  // last computed health score
 
   // Parse raw SMS text — runs all patterns, deduplicates, returns structured array
   parse(text) {
     const results = [];
-    const seen = new Set(); // dedupe by (bank+amount+type)
+    const seen = new Set();
 
     for (const [key, pat] of Object.entries(NEXUS_PATTERNS)) {
       const re = new RegExp(pat.re.source, pat.re.flags);
@@ -14903,12 +14929,20 @@ const NEXUS = {
       while ((m = re.exec(text)) !== null) {
         try {
           const data = pat.extract(m);
-          if (!data || !data.amount) continue;
+          if (!data || (!(Number(data.amount) > 0) && !(Number(data.balance) > 0))) continue;
+
+          // A transaction pattern often already includes its balance line.
+          // Do not render that same balance line as a second standalone record.
+          if (key === 'balance_only' && results.some(row =>
+            row.sourceStart <= m.index && row.sourceEnd >= m.index
+          )) continue;
+
           const parsedDate = nexusExtractSmsDate(text, m.index, m[0].length);
           const transactionDate = parsedDate || nexusLocalDate();
+          const messageText = m[0].trim();
           const dedupeKey = data.ref
             ? `${pat.bank}|ref:${data.ref}`
-            : `${pat.bank}|${data.type}|${data.amount}|${data.desc || ''}|${transactionDate}|${m[0].trim()}`;
+            : `${pat.bank}|${data.type}|${data.amount}|${data.desc || ''}|${transactionDate}|${messageText}`;
           if (seen.has(dedupeKey)) continue;
           seen.add(dedupeKey);
 
@@ -14917,39 +14951,51 @@ const NEXUS = {
             bankColor: pat.color,
             patternKey: key,
             type: data.type,
-            amount: data.amount,
+            amount: Number(data.amount) || 0,
             party: data.party || '',
-            ref: data.ref || null,       // SMS reference/transaction ID
+            ref: data.ref || null,
             balance: data.balance || null,
             desc: data.desc || '',
             date: transactionDate,
             dateEstimated: !parsedDate,
-            cat: inferMomoCat(data.party + ' ' + data.desc),
+            cat: inferMomoCat((data.party || '') + ' ' + (data.desc || '')),
             rawSms: m[0].substring(0, 200),
+            sourceStart: m.index,
+            sourceEnd: m.index + m[0].length,
           });
         } catch(_) {}
       }
     }
 
-    // Sort: income first, then by amount desc
+    // Keep normal transaction rows first; balance-only rows stay visible at the end.
     results.sort((a,b) => {
-      if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
+      const rank = row => row.type === 'income' ? 0 : row.type === 'expense' ? 1 : 2;
+      if (rank(a) !== rank(b)) return rank(a) - rank(b);
       return b.amount - a.amount;
     });
 
-    return results;
+    return results.map(({sourceStart, sourceEnd, ...row}) => row);
   },
 
   // Import parsed results as transactions (with SMS ref attached)
   import(parsed) {
     let imported = 0;
-    let latestBalance = null;
-    let latestBalanceDate = null;
-    let latestBalanceSource = 'SMS';
-    this._lastBalanceAmbiguous = false;
+    const balanceResolution = nexusResolveSmsBalance(parsed);
+    this._lastBalanceAmbiguous = balanceResolution.status === 'ambiguous';
+    this._lastBalanceUpdated = balanceResolution.status === 'ok';
+
+    if (this._lastBalanceUpdated) {
+      this._lastBalance = balanceResolution.balance;
+      SETTINGS.smsConfirmedBalance = balanceResolution.balance;
+      SETTINGS.smsBalanceDate = balanceResolution.date;
+      SETTINGS.smsBalanceSource = balanceResolution.source;
+      nexusApplyGroundTruthBalance(balanceResolution.balance);
+    }
 
     parsed.forEach(t => {
-      // Dedup: same date + amount + desc
+      // Standalone balance messages update ground truth, not the transaction ledger.
+      if (!['income','expense'].includes(t.type) || !(Number(t.amount) > 0)) return;
+
       const exists = transactions.some(tx =>
         tx.date === t.date && Math.abs(tx.amount) === t.amount && tx.desc === t.desc
       );
@@ -14964,47 +15010,23 @@ const NEXUS = {
         amount: t.type === 'expense' ? -t.amount : t.amount,
         created_at: new Date().toISOString(),
         source: 'nexus_sms',
-        smsRef: t.ref || null,         // ← transaction ID from SMS
-        smsBank: t.bank || null,       // ← bank/network source
-        smsRaw: t.rawSms || null,      // ← raw SMS text for audit
+        smsRef: t.ref || null,
+        smsBank: t.bank || null,
+        smsRaw: t.rawSms || null,
       };
       transactions.push(txObj);
       imported++;
-
     });
 
-    // Never choose the largest balance: it may be older or belong to another bank.
-    // Apply ground truth only when the newest dated balance is unambiguous.
-    const balanceRows = parsed.filter(t => Number(t.balance) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(t.date || ''));
-    if (balanceRows.length) {
-      latestBalanceDate = balanceRows.reduce(
-        (latest, row) => row.date > latest ? row.date : latest,
-        balanceRows[0].date
-      );
-      const latestRows = balanceRows.filter(row => row.date === latestBalanceDate);
-      const balances = [...new Set(latestRows.map(row => Number(row.balance)))];
-      const sources = [...new Set(latestRows.map(row => row.bank).filter(Boolean))];
-
-      if (balances.length === 1 && sources.length === 1) {
-        latestBalance = balances[0];
-        latestBalanceSource = sources[0];
-        this._lastBalance = latestBalance;
-        SETTINGS.smsConfirmedBalance = latestBalance;
-        SETTINGS.smsBalanceDate = latestBalanceDate;
-        SETTINGS.smsBalanceSource = latestBalanceSource;
-        nexusApplyGroundTruthBalance(latestBalance);
-      } else {
-        this._lastBalanceAmbiguous = true;
-      }
-    }
-
-    if (imported > 0) {
+    if (imported > 0 || this._lastBalanceUpdated) {
       dbSave();
       this._activityLog.unshift({
         time: new Date().toLocaleTimeString('en-RW', {hour:'2-digit',minute:'2-digit'}),
-        msg: `Imported ${imported} transaction${imported>1?'s':''} via NEXUS`,
+        msg: imported
+          ? `Imported ${imported} transaction${imported>1?'s':''} via NEXUS`
+          : 'Updated balance from NEXUS SMS',
         banks: [...new Set(parsed.map(p=>p.bank))],
-        balance: latestBalance,
+        balance: this._lastBalanceUpdated ? balanceResolution.balance : null,
       });
       if (this._activityLog.length > 20) this._activityLog.length = 20;
 
@@ -15358,48 +15380,58 @@ function nexusParse() {
     return;
   }
 
-  const totalIn  = parsed.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-  const totalOut = parsed.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
-  const latestBal = parsed.reduce((bal,t) => t.balance&&t.balance>0?t.balance:bal, null);
+  const transactionRows = parsed.filter(t => ['income','expense'].includes(t.type) && Number(t.amount) > 0);
+  const balanceOnlyRows = parsed.filter(t => !['income','expense'].includes(t.type) || !(Number(t.amount) > 0));
+  const totalIn = transactionRows.filter(t => t.type === 'income').reduce((sum,t) => sum + t.amount, 0);
+  const totalOut = transactionRows.filter(t => t.type === 'expense').reduce((sum,t) => sum + t.amount, 0);
+  const balanceResolution = nexusResolveSmsBalance(parsed);
+  const latestBal = balanceResolution.status === 'ok' ? balanceResolution.balance : null;
+  const balanceAmbiguous = balanceResolution.status === 'ambiguous';
 
   previewEl.innerHTML = `
     <div class="card" style="margin-bottom:12px;">
       <div style="font-size:11px;font-weight:700;color:var(--textdim);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;">NEXUS · Detected</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr ${latestBal?'1fr':''};gap:10px;margin-bottom:14px;">
-        ${totalIn>0?`<div style="padding:10px 12px;background:rgba(163,230,53,.06);border:1px solid rgba(163,230,53,.2);border-radius:10px;text-align:center;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:14px;">
+        ${totalIn > 0 ? `<div style="padding:10px 12px;background:rgba(163,230,53,.06);border:1px solid rgba(163,230,53,.2);border-radius:10px;text-align:center;">
           <div style="font-size:10px;color:var(--textdim);margin-bottom:2px;">INCOME</div>
           <div style="font-weight:800;color:var(--green);font-size:13px;">+${fmtN(totalIn)}</div>
-        </div>`:''}
-        ${totalOut>0?`<div style="padding:10px 12px;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2);border-radius:10px;text-align:center;">
+        </div>` : ''}
+        ${totalOut > 0 ? `<div style="padding:10px 12px;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2);border-radius:10px;text-align:center;">
           <div style="font-size:10px;color:var(--textdim);margin-bottom:2px;">EXPENSES</div>
           <div style="font-weight:800;color:var(--red);font-size:13px;">-${fmtN(totalOut)}</div>
-        </div>`:''}
-        ${latestBal?`<div style="padding:10px 12px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:10px;text-align:center;">
+        </div>` : ''}
+        ${latestBal ? `<div style="padding:10px 12px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:10px;text-align:center;">
           <div style="font-size:10px;color:var(--textdim);margin-bottom:2px;">BALANCE</div>
           <div style="font-weight:800;color:var(--blue);font-size:13px;">${fmtN(latestBal)}</div>
-        </div>`:''}
+        </div>` : ''}
       </div>
 
+      ${balanceAmbiguous ? '<div style="padding:9px 11px;margin-bottom:10px;border-radius:9px;background:rgba(212,168,67,.07);border:1px solid rgba(212,168,67,.2);font-size:11px;color:var(--gold);">Balance not applied: this import contains multiple bank sources or conflicting balances for the newest date.</div>' : ''}
+
       <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px;max-height:280px;overflow-y:auto;">
-        ${parsed.map((t,i) => {
-          const cat = CATS[t.cat]||CATS.other;
-          const refBadge = t.ref ? `<span style="font-size:9px;padding:1px 6px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;color:var(--textdim);margin-left:4px;font-family:monospace;">${t.ref}</span>` : '';
-          const bankBadge = `<span style="font-size:9px;padding:1px 6px;background:rgba(212,168,67,.06);border:1px solid rgba(212,168,67,.15);border-radius:10px;color:var(--gold);">${t.bank}</span>`;
-          const balBadge = t.balance ? `<span style="font-size:9px;padding:1px 6px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.15);border-radius:10px;color:var(--blue);">bal ${fmtN(t.balance)}</span>` : '';
+        ${parsed.map(t => {
+          const isBalanceOnly = !['income','expense'].includes(t.type) || !(Number(t.amount) > 0);
+          const amountColor = t.type === 'income' ? 'var(--green)' : t.type === 'expense' ? 'var(--red)' : 'var(--blue)';
+          const amountText = t.type === 'income' ? '+'+fmtN(t.amount) : t.type === 'expense' ? '-'+fmtN(t.amount) : 'BAL '+fmtN(t.balance);
+          const cat = CATS[t.cat] || CATS.other;
+          const refBadge = t.ref ? `<span style="font-size:9px;padding:1px 6px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;color:var(--textdim);margin-left:4px;font-family:monospace;">${sanitize(t.ref)}</span>` : '';
+          const bankBadge = `<span style="font-size:9px;padding:1px 6px;background:rgba(212,168,67,.06);border:1px solid rgba(212,168,67,.15);border-radius:10px;color:var(--gold);">${sanitize(t.bank)}</span>`;
+          const balBadge = t.balance && !isBalanceOnly ? `<span style="font-size:9px;padding:1px 6px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.15);border-radius:10px;color:var(--blue);">bal ${fmtN(t.balance)}</span>` : '';
+          const dateBadge = t.dateEstimated ? '<span style="font-size:9px;color:var(--gold);">date not found · using today</span>' : `<span style="font-size:9px;color:var(--textdim);">${t.date}</span>`;
           return `<div style="display:flex;align-items:center;gap:9px;padding:9px 10px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;">
-            <div style="font-size:15px;flex-shrink:0;">${cat.icon}</div>
+            <div style="font-size:15px;flex-shrink:0;">${isBalanceOnly ? '💰' : cat.icon}</div>
             <div style="flex:1;min-width:0;">
               <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(t.desc)}</div>
-              <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;">${bankBadge}${refBadge}${balBadge}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;">${bankBadge}${refBadge}${balBadge}${dateBadge}</div>
             </div>
-            <div style="font-size:13px;font-weight:800;color:${t.type==='income'?'var(--green)':'var(--red)'};flex-shrink:0;">${t.type==='income'?'+':'-'}${fmtN(t.amount)}</div>
+            <div style="font-size:13px;font-weight:800;color:${amountColor};flex-shrink:0;">${amountText}</div>
           </div>`;
         }).join('')}
       </div>
 
       <button class="btn-primary" style="width:100%;justify-content:center;" onclick="nexusImport()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
-        Import ${parsed.length} Transaction${parsed.length!==1?'s':''} into FinanceOS
+        ${transactionRows.length ? `Import ${transactionRows.length} transaction${transactionRows.length !== 1 ? 's' : ''} into FinanceOS${balanceOnlyRows.length ? ' + update balance' : ''}` : 'Update balance from SMS'}
       </button>
     </div>`;
 }
@@ -15407,10 +15439,11 @@ function nexusParse() {
 function nexusImport() {
   if (!_nexusParsed || !_nexusParsed.length) return;
 
-  const parsedCount = _nexusParsed.length;
+  const transactionCount = _nexusParsed.filter(t => ['income','expense'].includes(t.type) && Number(t.amount) > 0).length;
   const estimatedDateCount = _nexusParsed.filter(t => t.dateEstimated).length;
   const imported = NEXUS.import(_nexusParsed);
-  const skipped = Math.max(0, parsedCount - imported);
+  const skipped = Math.max(0, transactionCount - imported);
+  const balanceUpdated = NEXUS._lastBalanceUpdated;
   const balanceAmbiguous = NEXUS._lastBalanceAmbiguous;
 
   _nexusParsed = null;
@@ -15420,13 +15453,16 @@ function nexusImport() {
   if (preview) preview.innerHTML = '';
 
   const notes = [];
-  if (skipped) notes.push(`${skipped} duplicate${skipped === 1 ? '' : 's'} skipped`);
+  if (skipped) notes.push(`${skipped} duplicate transaction${skipped === 1 ? '' : 's'} skipped`);
   if (estimatedDateCount) notes.push(`${estimatedDateCount} SMS date${estimatedDateCount === 1 ? '' : 's'} missing; saved as today`);
-  if (balanceAmbiguous) notes.push('current balance left unchanged because newest SMS balances are ambiguous');
+  if (balanceUpdated) notes.push('confirmed balance updated');
+  if (balanceAmbiguous) notes.push('balance left unchanged because newest messages are ambiguous');
   const detail = notes.length ? ` (${notes.join('; ')})` : '';
-  showToast(`NEXUS imported ${imported} transaction${imported !== 1 ? 's' : ''}${detail}.`, balanceAmbiguous ? 'warn' : 'success');
+  const resultText = imported
+    ? `NEXUS imported ${imported} transaction${imported !== 1 ? 's' : ''}`
+    : balanceUpdated ? 'NEXUS updated the balance from SMS' : 'No new transactions imported';
+  showToast(`${resultText}${detail}.`, balanceAmbiguous ? 'warn' : 'success');
   renderSmsPage();
-  // Run brain after import
   setTimeout(() => NEXUS.think(), 300);
 }
 
