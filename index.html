@@ -5340,7 +5340,10 @@
       <div class="adv-prompt-grid">
         <button class="adv-prompt-btn" onclick="advSend('Give me 3 specific ways to cut my monthly expenses based on my spending')">
           <span class="adv-prompt-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg></span>Cut expenses
-      <button class="bank-tab" id="btab-momo" onclick="switchBankTab('momo')">📩 NEXUS SMS</button>
+        </button>
+        <button class="adv-prompt-btn" id="nexusSmsShortcut" onclick="navigateTo('bank'); switchBankTab('momo')">
+          <span class="adv-prompt-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 18h6"/></svg></span>NEXUS SMS
+        </button>
         <button class="adv-prompt-btn" onclick="advSend('What subscriptions or recurring expenses are likely wasting money?')">
           <span class="adv-prompt-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>Kill the leaks
         </button>
@@ -8699,7 +8702,7 @@ function toggleAiKeyVis() {
   // API credentials must never be stored in this public browser app.
 }
 function aiKeyMissing() {
-  alert('AI Advisor is not connected yet. FinanceOS local finance tools remain available. A protected server-side AI service is required to enable AI analysis.');
+  showToast('AI Advisor is not connected yet. Your local finance tools still work.', 'warn');
   return true;
 }
 
@@ -12787,6 +12790,7 @@ function clearChat() {
 }
 
 async function sendChat() {
+  if (aiKeyMissing()) return;
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
   if (!text) return;
@@ -13113,10 +13117,15 @@ let _bankParsedTx   = [];
 let _bankSelectedTx = new Set();
 
 function switchBankTab(tab) {
+  const tabs = ['paste','pdf','momo','csv'];
+  if (!tabs.includes(tab)) return;
+
   _bankCurrentTab = tab;
-  ['paste','pdf','momo','csv'].forEach(t => {
-    document.getElementById('bpanel-' + t).style.display = t === tab ? 'block' : 'none';
-    document.getElementById('btab-' + t).classList.toggle('active', t === tab);
+  tabs.forEach(t => {
+    const panel = document.getElementById('bpanel-' + t);
+    const button = document.getElementById('btab-' + t);
+    if (panel) panel.style.display = t === tab ? 'block' : 'none';
+    if (button) button.classList.toggle('active', t === tab);
   });
 }
 
@@ -14160,6 +14169,7 @@ async function fpReroute() {
 }
 
 async function fpAiReroute(income, expenses, savings, diff) {
+  if (aiKeyMissing()) return;
   const route = FP_ROUTES[fpRoute];
   const result = document.getElementById('fpAiResult');
   result.innerHTML = '<span class="spin-gps">⟳</span> GPS recalculating... AI rewriting your path...';
@@ -15320,11 +15330,21 @@ function nexusParse() {
 
 function nexusImport() {
   if (!_nexusParsed || !_nexusParsed.length) return;
+
+  const parsedCount = _nexusParsed.length;
   const imported = NEXUS.import(_nexusParsed);
+  const skipped = Math.max(0, parsedCount - imported);
+
   _nexusParsed = null;
-  document.getElementById('nexusSmsInput').value = '';
-  document.getElementById('nexusPreview').innerHTML = '';
-  showToast(`NEXUS imported ${imported} transaction${imported!==1?'s':''}${imported<_nexusParsed?.length||0?' (duplicates skipped)':''}`, 'success');
+  const input = document.getElementById('nexusSmsInput');
+  const preview = document.getElementById('nexusPreview');
+  if (input) input.value = '';
+  if (preview) preview.innerHTML = '';
+
+  const duplicateNote = skipped
+    ? ` (${skipped} duplicate${skipped === 1 ? '' : 's'} skipped)`
+    : '';
+  showToast(`NEXUS imported ${imported} transaction${imported !== 1 ? 's' : ''}${duplicateNote}.`, 'success');
   renderSmsPage();
   // Run brain after import
   setTimeout(() => NEXUS.think(), 300);
@@ -15332,6 +15352,7 @@ function nexusImport() {
 
 // AI-assisted fallback: ask Claude to parse an unrecognised SMS format
 async function nexusAiParse(text) {
+  if (aiKeyMissing()) return;
   const previewEl = document.getElementById('nexusPreview');
   if (previewEl) previewEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--textdim);font-size:13px;">🤖 NEXUS is asking Claude to parse this SMS format…</div>';
 
@@ -19863,6 +19884,7 @@ function bizPrefill() {
 }
 
 async function runBizAnalysis() {
+  if (aiKeyMissing()) return;
   const name      = document.getElementById('bizName').value.trim()      || 'My Business';
   const type      = document.getElementById('bizType').value;
   const startup   = parseFloat(document.getElementById('bizStartup').value)  || 0;
