@@ -138,7 +138,7 @@
 })();
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/lucide@1.50.0/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@1.72.0/dist/umd/lucide.js"></script>
 <style id="fos-lucide-style">
   .fos-lucide-icon {
     display: inline-flex !important;
@@ -156,6 +156,20 @@
     display: block;
     width: 100% !important;
     height: 100% !important;
+  }
+  .fos-icon-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25em;
+    height: 1.25em;
+    margin-inline-end: .32em;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: .82em;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: -.12em;
   }
 </style>
 <script id="fos-lucide-runtime">
@@ -204,7 +218,7 @@
     '\u{1F4A1}': 'lightbulb',
     '\u2705': 'circle-check',
     '\u2713': 'check',
-    '\u26A0': 'triangle-alert',
+    '\u26A0': 'triangle-exclamation-point',
     '\u{1F6AB}': 'ban',
     '\u274C': 'circle-x',
     '\u2715': 'x',
@@ -212,7 +226,7 @@
     '\u{1F511}': 'key-round',
     '\u{1F6E1}': 'shield-check',
     '\u{1F514}': 'bell',
-    '\u{1F64F}': 'handshake',
+    '\u{1F64F}': 'hand-heart',
     '\u{1F4B3}': 'credit-card',
     '\u{1F916}': 'bot',
     '\u2709': 'mail',
@@ -279,13 +293,13 @@
     '\u{1F9D3}': 'user-round',
     '\u{1F43B}': 'paw-print',
     '\u{1F402}': 'paw-print',
-    '\u{1F932}': 'handshake',
+    '\u{1F932}': 'hand-heart',
     '\u{1F54A}': 'bird',
     '\u{1F6E3}': 'route',
     '\u{1F3CE}': 'car-front',
     '\u{1F44B}': 'hand',
     '\u{1F9D8}': 'person-standing',
-    '\u{1F49D}': 'handshake',
+    '\u{1F49D}': 'heart',
     '\u{1F4FF}': 'circle-dot',
     '\u{1F61E}': 'frown',
     '\u{1F615}': 'circle-question-mark',
@@ -304,17 +318,34 @@
     '\u262A': 'moon-star',
     '\u271D': 'cross',
     '\u2721': 'star',
-    '\u{1F549}': 'landmark',
-    '\u2638': 'flower',
-    '\u{1FAAF}': 'landmark',
+    '\u{1F549}': 'book-open',
+    '\u2638': 'circle-dot',
+    '\u{1FAAF}': 'book-open',
     '\u267F': 'accessibility',
     '\u{1F36A}': 'cookie',
     '\u{1F91D}': 'handshake',
     '\u{1F6D1}': 'octagon-alert',
-    '\u{1F4A9}': 'circle-question-mark'
+    '\u{1F4A9}': 'circle-question-mark',
+    '\u2606': 'star',
+    '\u2731': 'star',
+    '\u{1F4E1}': 'radio-tower',
+    '\u{1F3A8}': 'palette',
+    '\u{1F527}': 'wrench',
+    '\u{1F590}': 'hand',
+    '\u{1F5DE}': 'newspaper',
+    '\u{1F198}': 'life-buoy',
+    '\u{1F54D}': 'landmark',
+    '\u{1FAB7}': 'flower-2',
+    '\u{1F536}': 'diamond',
+    '\u{1F468}': 'user-round',
+    '\u{1F469}': 'user-round',
+    '\u{1F467}': 'user-round',
+    '\u{1F49A}': 'heart',
+    '\u{1F499}': 'heart',
+    '\u{1F4D3}': 'notebook',
   });
 
-  const ICON_PREFIX = /^(\s*)(?:([\u{1F1E6}-\u{1F1FF}]{2})|([\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2713\u2714\u2715\u2716\u2795\u2796\u27A1](?:\uFE0F|\uFE0E)?(?:[\u{1F3FB}-\u{1F3FF}])?(?:\u200D[\u{1F000}-\u{1FAFF}\u2600-\u27BF](?:\uFE0F|\uFE0E)?)?))(\s*)/u;
+  const ICON_PREFIX = /^(\s*)(?:([\u{1F1E6}-\u{1F1FF}]{2})|(([0-9#*]\uFE0F?\u20E3))|([\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2713\u2714\u2715\u2716\u2795\u2796\u27A1](?:\uFE0F|\uFE0E)?(?:[\u{1F3FB}-\u{1F3FF}])?(?:\u200D[\u{1F000}-\u{1FAFF}\u2600-\u27BF](?:\uFE0F|\uFE0E)?(?:[\u{1F3FB}-\u{1F3FF}])?)?*))(\s*)/u;
   const SKIP_SELECTOR = 'script,style,textarea,input,select,option,code,pre,svg,[contenteditable="true"],.no-emoji-icon';
 
   function createIcon(name) {
@@ -333,10 +364,18 @@
     const icons = [];
     let match;
     while ((match = ICON_PREFIX.exec(value))) {
-      const symbol = match[2] || match[3];
-      const name = match[2] ? 'flag' : (ICON_MAP[Array.from(symbol)[0]] || 'sparkles');
-      icons.push(createIcon(name));
-      value = match[1] + match[4] + value.slice(match[0].length);
+      const symbol = match[2] || match[4];
+      if (match[3]) {
+        const number = document.createElement('span');
+        number.className = 'fos-icon-number';
+        number.textContent = match[3].slice(0, 1);
+        number.setAttribute('aria-hidden', 'true');
+        icons.push(number);
+      } else {
+        const name = match[2] ? 'flag' : (ICON_MAP[Array.from(symbol)[0]] || 'sparkles');
+        icons.push(createIcon(name));
+      }
+      value = match[1] + match[5] + value.slice(match[0].length);
       // One prefix icon per loop. The left-side whitespace remains before the
       // first icon, while whitespace after the icon stays with the text label.
       if (!ICON_PREFIX.test(value)) break;
@@ -356,7 +395,7 @@
     options.forEach(option => {
       const text = option.textContent || '';
       const match = ICON_PREFIX.exec(text);
-      if (match) option.textContent = match[1] + match[4] + text.slice(match[0].length);
+      if (match) option.textContent = match[1] + match[5] + text.slice(match[0].length);
     });
   }
 
