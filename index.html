@@ -26,7 +26,7 @@
 <!-- ── PWA Manifest (inline data URI for single-file PWA) ── -->
 <link id="pwa-manifest" rel="manifest"/>
 
-<title>FinanceOS v46 — Your Money · Your Business</title>
+<title>FinanceOS TEST v47 — Your Money · Your Business</title>
 
 <script>
 // ── Inject PWA Manifest inline so single-file works as installable PWA ──
@@ -92,7 +92,7 @@
   // FIX SW-2: cache is now populated on install so offline navigation actually works.
   if ('serviceWorker' in navigator) {
     const swCode = `
-      const CACHE = 'financeOS-v46';
+      const CACHE = 'financeOS-v47';
       // On install: claim the app URL from any open client windows so we
       // have something real to put in the cache (blob: SW URLs are useless).
       self.addEventListener('install', e => {
@@ -3791,6 +3791,7 @@
 </style>
 </head>
 <body>
+<div id="financeos-test-build" role="status" aria-label="Test build, not live" style="position:fixed;top:10px;right:10px;z-index:10001;display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid rgba(212,175,55,.42);border-radius:999px;background:rgba(15,18,27,.94);color:#e8d9a7;font:700 9px/1.2 'DM Sans',sans-serif;letter-spacing:.09em;text-transform:uppercase;box-shadow:0 3px 14px rgba(0,0,0,.22);pointer-events:none"><span style="width:6px;height:6px;border-radius:50%;background:#d6b75a;display:inline-block"></span> TEST BUILD · NOT LIVE</div>
 
 <!-- ══════════════════════════════════════════════════════════════════════
      USER FLOW LAYER  —  Splash → Onboarding → Auth → Home Screen
@@ -9493,20 +9494,28 @@ const VAULT = {
   _k: null,
   key() {
     if (this._k) return this._k;
-    try {
-      let k = sessionStorage.getItem('_fos_sk');
-      if (!k) {
-        k = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-              .map(b => b.toString(16).padStart(2,'0')).join('');
-        sessionStorage.setItem('_fos_sk', k);
-      }
-      this._k = k;
-    } catch(e) {
-      // sessionStorage unavailable — generate ephemeral in-memory key
-      // (no hardcoded fallback — prevents static-key attacks)
-      this._k = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-                      .map(b => b.toString(16).padStart(2,'0')).join('');
+    let k = null;
+
+    // Migrate the old per-tab key before creating a new one. This lets an
+    // already-open v46 session carry its existing key into durable storage.
+    try { k = localStorage.getItem('_fos_sk'); } catch(_) {}
+    if (!k) {
+      try {
+        k = sessionStorage.getItem('_fos_sk');
+        if (k) {
+          try { localStorage.setItem('_fos_sk', k); } catch(_) {}
+        }
+      } catch(_) {}
     }
+
+    // A 32-byte random key must survive tab and browser restarts.
+    if (!/^[0-9a-f]{64}$/i.test(k || '')) {
+      k = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+    try { localStorage.setItem('_fos_sk', k); } catch(_) {}
+    try { sessionStorage.setItem('_fos_sk', k); } catch(_) {}
+    this._k = k;
     return this._k;
   },
   encode(str) {
@@ -9532,7 +9541,7 @@ const VAULT = {
 // ═══════════════════════════════════════════════════════════════════
 // DATABASE — localStorage-backed persistence layer
 // All reads/writes go through DB. Data survives page refresh.
-// All stored values are obfuscated via VAULT — never plaintext.
+// Stored values are obfuscated for accidental visibility only; this is not encryption.
 // ═══════════════════════════════════════════════════════════════════
 //
 // ── ARCHITECTURE ROADMAP (single-file → modular split) ──────────────────────
@@ -9628,12 +9637,30 @@ const IDB = (() => {
 const DB = {
   _key: 'financeOS_v2',
   _idbOk: true,
+  _loadWarning: false,
+
+  // Preserve the original payload if it cannot be read. Never silently delete
+  // a user's only stored copy because a key or JSON parse failed.
+  preserveRecovery(raw, reason) {
+    this._loadWarning = true;
+    try {
+      const recoveryKey = this._key + '_recovery';
+      if (raw && !localStorage.getItem(recoveryKey)) localStorage.setItem(recoveryKey, raw);
+    } catch(_) {}
+    console.error('[FinanceOS] Saved data could not be loaded; original stored payload preserved for recovery.', reason || 'unknown error');
+    try {
+      if (typeof showToast === 'function') {
+        setTimeout(() => showToast('Saved data could not be read. Its original copy was preserved. Do not clear browser storage.', 'warn'), 1200);
+      }
+    } catch(_) {}
+  },
 
   // Load full state — decode from vault, parse JSON
   // Sync fast path reads localStorage so the app boots immediately.
   load() {
+    let raw = null;
     try {
-      const raw = localStorage.getItem(this._key);
+      raw = localStorage.getItem(this._key);
       if (!raw) {
         const legacy = localStorage.getItem('financeOS_v1');
         if (legacy) {
@@ -9645,9 +9672,20 @@ const DB = {
         return null;
       }
       const decoded = VAULT.decode(raw);
-      if (decoded) return JSON.parse(decoded);
+      if (decoded) {
+        const state = JSON.parse(decoded);
+        if (!state || typeof state !== 'object' || Array.isArray(state)) {
+          throw new Error('Stored FinanceOS state has an invalid shape');
+        }
+        this._loadWarning = false;
+        return state;
+      }
+      this.preserveRecovery(raw, 'The saved data could not be decoded.');
     } catch(e) {
-      try { localStorage.removeItem(this._key); } catch(_) {}
+      if (!raw) {
+        try { raw = localStorage.getItem(this._key); } catch(_) {}
+      }
+      this.preserveRecovery(raw, e);
     }
     return null;
   },
@@ -9687,7 +9725,9 @@ const DB = {
   clear() {
     IDB.del(this._key).catch(()=>{});
     localStorage.removeItem(this._key);
+    localStorage.removeItem(this._key + '_recovery');
     localStorage.removeItem('financeOS_v1');
+    this._loadWarning = false;
   },
 
   // Export full backup as a downloadable .json file
@@ -9707,7 +9747,7 @@ const DB = {
         opportunities:     (() => { try { return JSON.parse(localStorage.getItem('finOS_opportunities')||'null'); } catch(e){ return null; } })(),
         netWorthHistory:   (() => { try { return JSON.parse(localStorage.getItem('fos_nw_history')||'null'); } catch(e){ return null; } })(),
         exportedAt:        new Date().toISOString(),
-        version:           'v46',
+        version:           'v47',
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url  = URL.createObjectURL(blob);
@@ -14752,7 +14792,7 @@ function renderStrategies() {}
 
 // ─── RENDER ALL ──────────────────────────────────────────────────────────────
 function renderPage(page) {
-  const _safecall = (fn) => { try { fn(); } catch(e) { console.error('[FinanceOS v46] renderPage error on "' + page + '":', e); } };
+  const _safecall = (fn) => { try { fn(); } catch(e) { console.error('[FinanceOS TEST v47] renderPage error on "' + page + '":', e); } };
   if (page==='dashboard')    _safecall(renderDashboard);
   else if (page==='transactions') _safecall(() => setMoneyTab(currentMoneyTab));
   else if (page==='assets')  _safecall(renderAssets);
