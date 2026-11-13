@@ -364,7 +364,7 @@
     const icons = [];
     let match;
     while ((match = ICON_PREFIX.exec(value))) {
-      const symbol = match[2] || match[4];
+      const symbol = match[2] || match[5];
       if (match[3]) {
         const number = document.createElement('span');
         number.className = 'fos-icon-number';
@@ -375,7 +375,7 @@
         const name = match[2] ? 'flag' : (ICON_MAP[Array.from(symbol)[0]] || 'sparkles');
         icons.push(createIcon(name));
       }
-      value = match[1] + match[5] + value.slice(match[0].length);
+      value = match[1] + match[6] + value.slice(match[0].length);
       // One prefix icon per loop. The left-side whitespace remains before the
       // first icon, while whitespace after the icon stays with the text label.
       if (!ICON_PREFIX.test(value)) break;
@@ -395,7 +395,7 @@
     options.forEach(option => {
       const text = option.textContent || '';
       const match = ICON_PREFIX.exec(text);
-      if (match) option.textContent = match[1] + match[5] + text.slice(match[0].length);
+      if (match) option.textContent = match[1] + match[6] + text.slice(match[0].length);
     });
   }
 
