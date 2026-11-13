@@ -138,6 +138,354 @@
 })();
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/lucide@1.72.0/dist/umd/lucide.js"></script>
+<style id="fos-lucide-style">
+  .fos-lucide-icon {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 1em !important;
+    height: 1em !important;
+    min-width: 1em;
+    vertical-align: -0.16em;
+    flex: 0 0 auto;
+    margin-inline-end: 0.32em;
+    stroke-width: 1.8;
+  }
+  .fos-lucide-icon svg {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .fos-icon-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25em;
+    height: 1.25em;
+    margin-inline-end: .32em;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: .82em;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: -.12em;
+  }
+</style>
+<script id="fos-lucide-runtime">
+(function () {
+  'use strict';
+
+  // FinanceOS uses one icon vocabulary across static markup, generated cards,
+  // menus, toasts, command results and AI-generated action rows.
+  const ICON_MAP = Object.freeze({
+    '\u{1F4F1}': 'smartphone',
+    '\u{1F504}': 'refresh-cw',
+    '\u2708': 'plane',
+    '\u{1F441}': 'eye',
+    '\u{1F4E9}': 'mail',
+    '\u{1F5D3}': 'calendar-days',
+    '\u{1F4CA}': 'chart-column',
+    '\u{1F513}': 'lock-open',
+    '\u{1F6F0}': 'satellite',
+    '\u{1F534}': 'circle',
+    '\u{1F535}': 'circle',
+    '\u{1F7E1}': 'circle',
+    '\u{1F7E2}': 'circle',
+    '\u{1F7E3}': 'circle',
+    '\u{1F3AC}': 'clapperboard',
+    '\u{1F4F0}': 'newspaper',
+    '\u{1F3CB}': 'dumbbell',
+    '\u{1F355}': 'pizza',
+    '\u{1F393}': 'graduation-cap',
+    '\u{1F4F8}': 'camera',
+    '\u{1F9E0}': 'brain',
+    '\u26A1': 'zap',
+    '\u{1F9EE}': 'calculator',
+    '\u{1F37D}': 'utensils',
+    '\u{1F4C8}': 'chart-no-axes-combined',
+    '\u{1F4C9}': 'chart-no-axes-combined',
+    '\u{1F4B3}': 'credit-card',
+    '\u{1F50D}': 'search',
+    '\u{1F4CB}': 'clipboard-list',
+    '\u{1F4C4}': 'file-text',
+    '\u{1F3E6}': 'landmark',
+    '\u{1F4B0}': 'wallet',
+    '\u{1F4B8}': 'banknote',
+    '\u{1F525}': 'flame',
+    '\u{1F4AC}': 'message-circle',
+    '\u{1F9EA}': 'test-tube',
+    '\u{1F4A1}': 'lightbulb',
+    '\u2705': 'circle-check',
+    '\u2713': 'check',
+    '\u26A0': 'triangle-exclamation-point',
+    '\u{1F6AB}': 'ban',
+    '\u274C': 'circle-x',
+    '\u2715': 'x',
+    '\u{1F680}': 'rocket',
+    '\u{1F511}': 'key-round',
+    '\u{1F6E1}': 'shield-check',
+    '\u{1F514}': 'bell',
+    '\u{1F64F}': 'hand-heart',
+    '\u{1F4B3}': 'credit-card',
+    '\u{1F916}': 'bot',
+    '\u2709': 'mail',
+    '\u{1F3AF}': 'target',
+    '\u{1F501}': 'repeat',
+    '\u{1F4B9}': 'chart-no-axes-combined',
+    '\u{1F3DB}': 'landmark',
+    '\u{1F4DD}': 'notebook-pen',
+    '\u2696': 'scale',
+    '\u2795': 'plus',
+    '\u2796': 'minus',
+    '\u2764': 'heart',
+    '\u{1F319}': 'moon',
+    '\u{1F4BE}': 'save',
+    '\u{1F4E5}': 'inbox',
+    '\u{1F4E4}': 'upload',
+    '\u{1F510}': 'lock-keyhole',
+    '\u{1F512}': 'lock',
+    '\u{1F3C6}': 'trophy',
+    '\u{1F3C1}': 'flag',
+    '\u{1F4C5}': 'calendar-days',
+    '\u{1F4C6}': 'calendar-days',
+    '\u{1F48E}': 'gem',
+    '\u{1F9ED}': 'compass',
+    '\u{1F3E0}': 'house',
+    '\u{1F4CD}': 'map-pin',
+    '\u{1F5FA}': 'map',
+    '\u{1F9FE}': 'receipt',
+    '\u{1F6D2}': 'shopping-cart',
+    '\u{1F381}': 'gift',
+    '\u{1F389}': 'party-popper',
+    '\u{1F331}': 'sprout',
+    '\u{1F4AA}': 'dumbbell',
+    '\u{1F4D6}': 'book-open',
+    '\u{1F5C4}': 'archive',
+    '\u{1F4D0}': 'ruler',
+    '\u{1F4DC}': 'scroll',
+    '\u{1F33B}': 'flower-2',
+    '\u{1F30D}': 'globe',
+    '\u2702': 'scissors',
+    '\u2699': 'settings',
+    '\u{1F3E2}': 'building-2',
+    '\u{1F6DF}': 'life-buoy',
+    '\u{1F6A8}': 'siren',
+    '\u{1F4E3}': 'megaphone',
+    '\u{1F4E7}': 'mail',
+    '\u{1F4DE}': 'phone',
+    '\u{1F5A5}': 'monitor',
+    '\u{1F31F}': 'star',
+    '\u{1F4A4}': 'moon',
+    '\u{1F9F9}': 'brush',
+    '\u{1F9CA}': 'snowflake',
+    '\u{1F52D}': 'telescope',
+    '\u{1F69A}': 'truck',
+    '\u{1F68C}': 'bus',
+    '\u{1F697}': 'car',
+    '\u{1F3E5}': 'hospital',
+    '\u{1F4DA}': 'library',
+    '\u{1F4E6}': 'package',
+    '\u2601': 'cloud',
+    '\u270F': 'pencil',
+    '\u{1F39B}': 'sliders-horizontal',
+    '\u{1F41B}': 'bug',
+    '\u{1F9D3}': 'user-round',
+    '\u{1F43B}': 'paw-print',
+    '\u{1F402}': 'paw-print',
+    '\u{1F932}': 'hand-heart',
+    '\u{1F54A}': 'bird',
+    '\u{1F6E3}': 'route',
+    '\u{1F3CE}': 'car-front',
+    '\u{1F44B}': 'hand',
+    '\u{1F9D8}': 'person-standing',
+    '\u{1F49D}': 'heart',
+    '\u{1F4FF}': 'circle-dot',
+    '\u{1F61E}': 'frown',
+    '\u{1F615}': 'circle-question-mark',
+    '\u{1F60A}': 'smile',
+    '\u{1F604}': 'smile',
+    '\u{1F929}': 'star',
+    '\u{1F5D1}': 'trash-2',
+    '\u{1FAAA}': 'id-card',
+    '\u{1F52E}': 'sparkles',
+    '\u{1F3AD}': 'drama',
+    '\u{1F6CD}': 'shopping-bag',
+    '\u{1F4E6}': 'package',
+    '\u{1F92B}': 'eye-off',
+    '\u2744': 'snowflake',
+    '\u{1F54C}': 'landmark',
+    '\u262A': 'moon-star',
+    '\u271D': 'cross',
+    '\u2721': 'star',
+    '\u{1F549}': 'book-open',
+    '\u2638': 'circle-dot',
+    '\u{1FAAF}': 'book-open',
+    '\u267F': 'accessibility',
+    '\u{1F36A}': 'cookie',
+    '\u{1F91D}': 'handshake',
+    '\u{1F6D1}': 'octagon-alert',
+    '\u{1F4A9}': 'circle-question-mark',
+    '\u2606': 'star',
+    '\u2731': 'star',
+    '\u{1F4E1}': 'radio-tower',
+    '\u{1F3A8}': 'palette',
+    '\u{1F527}': 'wrench',
+    '\u{1F590}': 'hand',
+    '\u{1F5DE}': 'newspaper',
+    '\u{1F198}': 'life-buoy',
+    '\u{1F54D}': 'landmark',
+    '\u{1FAB7}': 'flower-2',
+    '\u{1F536}': 'diamond',
+    '\u{1F468}': 'user-round',
+    '\u{1F469}': 'user-round',
+    '\u{1F467}': 'user-round',
+    '\u{1F49A}': 'heart',
+    '\u{1F499}': 'heart',
+    '\u{1F4D3}': 'notebook',
+  });
+
+  const ICON_PREFIX = /^(\s*)(?:([\u{1F1E6}-\u{1F1FF}]{2})|(([0-9#*]\uFE0F?\u20E3))|([\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2713\u2714\u2715\u2716\u2795\u2796\u27A1](?:\uFE0F|\uFE0E)?(?:[\u{1F3FB}-\u{1F3FF}])?(?:\u200D[\u{1F000}-\u{1FAFF}\u2600-\u27BF](?:\uFE0F|\uFE0E)?(?:[\u{1F3FB}-\u{1F3FF}])?)*))(\s*)/u;
+  const SKIP_SELECTOR = 'script,style,textarea,input,select,option,code,pre,svg,[contenteditable="true"],.no-emoji-icon';
+
+  function createIcon(name) {
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', name);
+    icon.className = 'fos-lucide-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    return icon;
+  }
+
+  function upgradeTextNode(node) {
+    if (!node || !node.parentElement || !node.nodeValue) return false;
+    if (node.parentElement.closest(SKIP_SELECTOR)) return false;
+
+    let value = node.nodeValue;
+    const icons = [];
+    let match;
+    while ((match = ICON_PREFIX.exec(value))) {
+      const symbol = match[2] || match[5];
+      if (match[3]) {
+        const number = document.createElement('span');
+        number.className = 'fos-icon-number';
+        number.textContent = match[3].slice(0, 1);
+        number.setAttribute('aria-hidden', 'true');
+        icons.push(number);
+      } else {
+        const name = match[2] ? 'flag' : (ICON_MAP[Array.from(symbol)[0]] || 'sparkles');
+        icons.push(createIcon(name));
+      }
+      value = match[1] + match[6] + value.slice(match[0].length);
+      // One prefix icon per loop. The left-side whitespace remains before the
+      // first icon, while whitespace after the icon stays with the text label.
+      if (!ICON_PREFIX.test(value)) break;
+    }
+    if (!icons.length) return false;
+
+    icons.forEach(icon => node.parentNode.insertBefore(icon, node));
+    node.nodeValue = value;
+    return true;
+  }
+
+  function cleanOptions(root) {
+    if (!root || root.nodeType !== 1) return;
+    const options = [];
+    if (root.matches && root.matches('option')) options.push(root);
+    if (root.querySelectorAll) options.push(...root.querySelectorAll('option'));
+    options.forEach(option => {
+      const text = option.textContent || '';
+      const match = ICON_PREFIX.exec(text);
+      if (match) option.textContent = match[1] + match[6] + text.slice(match[0].length);
+    });
+  }
+
+  function scan(root) {
+    if (!root) return false;
+    if (root.nodeType === 3) return upgradeTextNode(root);
+    if (root.nodeType !== 1) return false;
+    if (root.matches && root.matches('option,select')) {
+      cleanOptions(root);
+      return false;
+    }
+    if (root.matches && root.matches('script,style,textarea,input,code,pre,svg,[contenteditable="true"],.no-emoji-icon')) return false;
+    cleanOptions(root);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        return node.parentElement && node.parentElement.closest(SKIP_SELECTOR)
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    let changed = false;
+    while (walker.nextNode()) changed = upgradeTextNode(walker.currentNode) || changed;
+    return changed;
+  }
+
+  let renderQueued = false;
+  function renderFallbackIcons() {
+    document.querySelectorAll('i[data-lucide]').forEach(element => {
+      const wrapper = document.createElement('span');
+      wrapper.className = 'fos-lucide-icon';
+      wrapper.setAttribute('aria-hidden', 'true');
+      wrapper.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>';
+      element.replaceWith(wrapper);
+    });
+  }
+
+  function scheduleLucideRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      if (!window.lucide || typeof window.lucide.createIcons !== 'function') {
+        renderFallbackIcons();
+        return;
+      }
+      try {
+        window.lucide.createIcons();
+      } catch (error) {
+        console.warn('[FinanceOS] Lucide icons could not be rendered:', error);
+      }
+      // If an icon name was removed or renamed by Lucide, never leave a blank slot.
+      const unresolved = document.querySelectorAll('i[data-lucide]');
+      if (unresolved.length) {
+        unresolved.forEach(element => element.setAttribute('data-lucide', 'circle'));
+        try {
+          window.lucide.createIcons();
+        } catch (error) {
+          console.warn('[FinanceOS] Lucide fallback icon could not be rendered:', error);
+        }
+        if (document.querySelector('i[data-lucide]')) renderFallbackIcons();
+      }
+    });
+  }
+
+  function init() {
+    if (!document.body) return;
+    const observer = new MutationObserver(records => {
+      let changed = false;
+      records.forEach(record => {
+        if (record.type === 'characterData') {
+          changed = upgradeTextNode(record.target) || changed;
+        }
+        record.addedNodes && record.addedNodes.forEach(node => {
+          changed = scan(node) || changed;
+        });
+      });
+      if (changed) scheduleLucideRender();
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    scan(document.body);
+    scheduleLucideRender();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
+  }
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root {
@@ -5461,8 +5809,8 @@ body.three-quarter-mode #unlockCard { display: flex; }
           <div><label class="form-label">Amount (RWF)</label><input class="form-input" type="number" id="rec-amount" placeholder="450000"/></div>
           <div><label class="form-label">Type</label>
             <select class="form-select" id="rec-type">
-              <option value="income"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Income</option>
-              <option value="expense" selected><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Expense</option>
+              <option value="income"> Income</option>
+              <option value="expense" selected> Expense</option>
             </select>
           </div>
           <div><label class="form-label">Category</label>
@@ -5596,10 +5944,10 @@ body.three-quarter-mode #unlockCard { display: flex; }
           </div>
           <div class="form-group"><label class="form-label">Category</label>
             <select class="form-select" id="sub-cat">
-              <option value="streaming">🎬 Streaming</option><option value="mobile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg> Mobile/Data</option>
-              <option value="software"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg> Software</option><option value="news">📰 News/Media</option>
+              <option value="streaming">🎬 Streaming</option><option value="mobile"> Mobile/Data</option>
+              <option value="software"> Software</option><option value="news">📰 News/Media</option>
               <option value="fitness">🏋️ Fitness</option><option value="food">🍕 Food</option>
-              <option value="finance"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Finance</option><option value="other"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> Other</option>
+              <option value="finance"> Finance</option><option value="other"> Other</option>
             </select>
           </div>
           <div class="form-group"><label class="form-label">Next Billing Date</label><input class="form-input" type="date" id="sub-next"/></div>
@@ -5625,13 +5973,13 @@ body.three-quarter-mode #unlockCard { display: flex; }
           <div class="form-group"><label class="form-label">Monthly Payment (RWF)</label><input class="form-input" type="number" id="debt-monthly" placeholder="120000"/></div>
           <div class="form-group"><label class="form-label">Type</label>
             <select class="form-select" id="debt-type">
-              <option value="mortgage"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Mortgage / Home Loan</option>
-              <option value="car"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> Car Loan</option>
-              <option value="personal"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Personal Loan</option>
-              <option value="business"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg> Business Loan</option>
-              <option value="credit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> Credit Card</option>
+              <option value="mortgage"> Mortgage / Home Loan</option>
+              <option value="car"> Car Loan</option>
+              <option value="personal"> Personal Loan</option>
+              <option value="business"> Business Loan</option>
+              <option value="credit"> Credit Card</option>
               <option value="student">🎓 Student Loan</option>
-              <option value="other"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> Other</option>
+              <option value="other"> Other</option>
             </select>
           </div>
           <div class="form-group"><label class="form-label">Due Date (payoff target)</label><input class="form-input" type="date" id="debt-due"/></div>
@@ -6892,28 +7240,28 @@ The parser auto-detects amounts, dates, senders, and types."></textarea>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label">Monthly Income</label><input class="form-input" type="number" id="settingsIncome" value="0" placeholder="e.g. 5000"/></div>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label">Currency</label>
             <select class="form-select" id="settingsCurrency">
-              <option value="USD" selected><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> USD – US Dollar</option>
-              <option value="EUR"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> EUR – Euro</option>
-              <option value="GBP"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> GBP – British Pound</option>
+              <option value="USD" selected> USD – US Dollar</option>
+              <option value="EUR"> EUR – Euro</option>
+              <option value="GBP"> GBP – British Pound</option>
               <option value="RWF">🇷🇼 RWF – Rwandan Franc</option>
               <option value="KES">🇰🇪 KES – Kenyan Shilling</option>
-              <option value="UGX"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> UGX – Ugandan Shilling</option>
-              <option value="NGN"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> NGN – Nigerian Naira</option>
-              <option value="GHS"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> GHS – Ghanaian Cedi</option>
-              <option value="ZAR"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> ZAR – South African Rand</option>
+              <option value="UGX"> UGX – Ugandan Shilling</option>
+              <option value="NGN"> NGN – Nigerian Naira</option>
+              <option value="GHS"> GHS – Ghanaian Cedi</option>
+              <option value="ZAR"> ZAR – South African Rand</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label">Account Type</label>
             <select class="form-select" id="settingsAccountType">
-              <option value="personal" selected><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Personal</option>
+              <option value="personal" selected> Personal</option>
               <option value="business">🏢 Business</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label">KYC / Identity Status</label>
             <select class="form-select" id="settingsKyc" onchange="document.getElementById('kycBadge').textContent=this.options[this.selectedIndex].text">
               <option value="pending">⏳ Pending Verification</option>
-              <option value="verified"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><polyline points="20 6 9 17 4 12"/></svg> Verified</option>
-              <option value="unverified"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Unverified</option>
+              <option value="verified"> Verified</option>
+              <option value="unverified"> Unverified</option>
             </select>
           </div>
         </div>
@@ -7375,11 +7723,11 @@ The parser auto-detects amounts, dates, senders, and types."></textarea>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div class="form-group" style="margin-bottom:0;"><label class="form-label">Language</label>
             <select class="form-select" id="settingsLanguage">
-              <option value="en" selected><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> English</option>
-              <option value="fr"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> French</option>
+              <option value="en" selected> English</option>
+              <option value="fr"> French</option>
               <option value="sw">🇰🇪 Swahili</option>
               <option value="rw">🇷🇼 Kinyarwanda</option>
-              <option value="ar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> Arabic</option>
+              <option value="ar"> Arabic</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label">Date Format</label>
@@ -7540,9 +7888,9 @@ The parser auto-detects amounts, dates, senders, and types."></textarea>
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;">
           <div><div style="font-size:13px;font-weight:600;">Default Payment Method</div><div style="font-size:11px;color:var(--textdim);">Used for quick-pay and auto-pay</div></div>
           <select class="form-select" style="width:auto;padding:5px 10px;font-size:12px;">
-            <option><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> Visa ···4242</option>
-            <option><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg> Bank Transfer</option>
-            <option><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg> Mobile Money</option>
+            <option> Visa ···4242</option>
+            <option> Bank Transfer</option>
+            <option> Mobile Money</option>
           </select>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;">
@@ -8677,8 +9025,8 @@ Examples:
           <div class="form-group"><label class="form-label">Gross Monthly Salary (RWF)</label><input class="form-input" type="number" id="tax-gross" oninput="calcTax()"/></div>
           <div class="form-group"><label class="form-label">Employment Type</label>
             <select class="form-select" id="tax-emptype" onchange="calcTax()">
-              <option value="employee"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Employed (PAYE deducted by employer)</option>
-              <option value="self"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg> Self-Employed / Sole Proprietor</option>
+              <option value="employee"> Employed (PAYE deducted by employer)</option>
+              <option value="self"> Self-Employed / Sole Proprietor</option>
             </select>
           </div>
           <div class="form-group"><label class="form-label">Other Monthly Income (RWF)</label><input class="form-input" type="number" id="tax-other" value="0" oninput="calcTax()"/></div>
@@ -8721,14 +9069,14 @@ Examples:
             <div class="form-group">
               <label class="form-label">Business Type</label>
               <select class="form-select" id="bizType">
-                <option value="beauty"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Beauty & Personal Care</option>
+                <option value="beauty"> Beauty & Personal Care</option>
                 <option value="retail">🛍️ Retail / Product Sales</option>
-                <option value="food"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/></svg> Food & Beverage</option>
+                <option value="food"> Food & Beverage</option>
                 <option value="service">🔧 Service / Consulting</option>
-                <option value="tech"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg> Tech / Digital</option>
-                <option value="fashion"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg> Fashion & Clothing</option>
-                <option value="health"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Health & Wellness</option>
-                <option value="other"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> Other</option>
+                <option value="tech"> Tech / Digital</option>
+                <option value="fashion"> Fashion & Clothing</option>
+                <option value="health"> Health & Wellness</option>
+                <option value="other"> Other</option>
               </select>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -8992,19 +9340,19 @@ Examples:
     <div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="txDate"/></div>
     <div class="form-group"><label class="form-label">Category</label>
       <select class="form-select" id="txCat">
-        <option value="income"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Income</option>
-        <option value="housing"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Housing</option>
-        <option value="food" selected><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/></svg> Food</option>
-        <option value="transport"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> Transport</option>
-        <option value="health"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Health</option>
-        <option value="entertainment"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg> Fun</option>
-        <option value="clothing"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg> Clothing</option>
-        <option value="family"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/></svg> Family/Gifts</option>
-        <option value="savings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg> Savings</option>
-        <option value="investment"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> Investment</option>
-        <option value="sacco"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> SACCO</option>
-        <option value="umworo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Umworo (Rotating Pool)</option>
-        <option value="other"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> Other</option>
+        <option value="income"> Income</option>
+        <option value="housing"> Housing</option>
+        <option value="food" selected> Food</option>
+        <option value="transport"> Transport</option>
+        <option value="health"> Health</option>
+        <option value="entertainment"> Fun</option>
+        <option value="clothing"> Clothing</option>
+        <option value="family"> Family/Gifts</option>
+        <option value="savings"> Savings</option>
+        <option value="investment"> Investment</option>
+        <option value="sacco"> SACCO</option>
+        <option value="umworo"> Umworo (Rotating Pool)</option>
+        <option value="other"> Other</option>
       </select>
     </div>
     <div class="form-group"><label class="form-label" style="color:var(--textdim);">Note <span style="font-weight:400;font-size:10px;">(optional)</span></label><input class="form-input" id="txNote" placeholder="e.g. client lunch, bus fare..."/></div>
@@ -9024,17 +9372,17 @@ Examples:
     <div class="form-group"><label class="form-label">Purchase Price / Cost Basis (RWF)</label><input class="form-input" type="number" id="assetCost" placeholder="0 — optional"/></div>
     <div class="form-group"><label class="form-label">Type</label>
       <select class="form-select" id="assetType">
-        <option value="cash"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Cash / Savings</option>
-        <option value="emergency_fund"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Emergency Fund</option>
-        <option value="stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> Stocks (RSE)</option>
+        <option value="cash"> Cash / Savings</option>
+        <option value="emergency_fund"> Emergency Fund</option>
+        <option value="stock"> Stocks (RSE)</option>
         <option value="crypto">₿ Crypto</option>
-        <option value="property"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Property / Real Estate</option>
+        <option value="property"> Property / Real Estate</option>
         <option value="pension">🧓 Pension / RSSB</option>
-        <option value="bond"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg> Bonds / Treasury</option>
-        <option value="sacco"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> SACCO Balance</option>
-        <option value="umworo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Umworo Pool Share</option>
-        <option value="business"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg> Business</option>
-        <option value="other"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> Other</option>
+        <option value="bond"> Bonds / Treasury</option>
+        <option value="sacco"> SACCO Balance</option>
+        <option value="umworo"> Umworo Pool Share</option>
+        <option value="business"> Business</option>
+        <option value="other"> Other</option>
       </select>
     </div>
     <div class="form-group"><label class="form-label">How did you get this asset?</label>
