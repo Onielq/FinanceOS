@@ -18,8 +18,15 @@
     return localDateKey(value).slice(0, 7);
   }
 
+  function isValidDateKey(value) {
+    if (typeof value !== 'string' || !DATE_RE.test(value)) return false;
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }
+
   function parseDateKey(value) {
-    if (typeof value !== 'string' || !DATE_RE.test(value)) throw new TypeError('Date must use YYYY-MM-DD');
+    if (!isValidDateKey(value)) throw new TypeError('Date must use a valid YYYY-MM-DD calendar date');
     const [year, month, day] = value.split('-').map(Number);
     const date = new Date(Date.UTC(year, month - 1, day));
     if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
@@ -91,7 +98,7 @@
       if (data[field] != null && !Array.isArray(data[field])) return fail(field + ' must be an array.');
     }
     for (const [index, tx] of (data.transactions || []).entries()) {
-      if (!tx || typeof tx !== 'object' || !DATE_RE.test(tx.date || '') ||
+      if (!tx || typeof tx !== 'object' || !isValidDateKey(tx.date) ||
           !['income','expense'].includes(tx.type) || !Number.isFinite(Number(tx.amount)) ||
           typeof tx.desc !== 'string') return fail('Transaction ' + (index + 1) + ' is invalid.');
     }
@@ -104,7 +111,7 @@
     for (const [index, rule] of (data.recurringTx || []).entries()) {
       if (!rule || typeof rule !== 'object' || typeof rule.desc !== 'string' ||
           !Number.isFinite(Number(rule.amount)) || Number(rule.amount) <= 0 ||
-          !DATE_RE.test(rule.nextDate || '') ||
+          !isValidDateKey(rule.nextDate) ||
           !['monthly','weekly','biweekly'].includes(rule.frequency)) {
         return fail('Recurring rule ' + (index + 1) + ' is invalid.');
       }
@@ -113,7 +120,7 @@
   }
 
   return Object.freeze({
-    TRANSFER_CATEGORIES, localDateKey, localMonthKey, nextRecurringDate,
+    TRANSFER_CATEGORIES, localDateKey, localMonthKey, isValidDateKey, nextRecurringDate,
     calculateNetWorth, calculateMonthlySavings, calculateDebtToIncome,
     calculateRunwayMonths, calculateBusinessCapitalAvailable, csvCell, validateBackup
   });
