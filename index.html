@@ -8445,7 +8445,20 @@ const IDB = (() => {
     } catch(e) { return false; }
   }
 
-  return { get, set, del };
+  async function clear() {
+    try {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        const req = tx.objectStore(STORE).clear();
+        tx.oncomplete = () => res(true);
+        tx.onerror = () => rej(tx.error || req.error);
+        tx.onabort = () => rej(tx.error || new Error('IndexedDB clear aborted'));
+      });
+    } catch(e) { return false; }
+  }
+
+  return { get, set, del, clear };
 })();
 
 const DB = {
@@ -8511,6 +8524,18 @@ const DB = {
     IDB.del(this._key).catch(()=>{});
     localStorage.removeItem(this._key);
     localStorage.removeItem('financeOS_v1');
+  },
+
+  async clearAll() {
+    const indexedDbCleared = await IDB.clear();
+    if (!indexedDbCleared && this._idbOk) {
+      throw new Error('IndexedDB could not be cleared. Close other FinanceOS tabs and try again.');
+    }
+    // This Vercel origin belongs to FinanceOS; clear all app-local preferences,
+    // credentials, history, and auxiliary records after the durable store succeeds.
+    localStorage.clear();
+    sessionStorage.clear();
+    return true;
   },
 
   // Export full backup as a downloadable .json file
@@ -20965,7 +20990,7 @@ function openDeleteAccountModal() {
   var body = '<div style="text-align:center;margin-bottom:16px;">'
     + '<div style="font-size:36px;margin-bottom:8px;">⚠️</div>'
     + '<div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:6px;">This cannot be undone</div>'
-    + '<p style="font-size:12px;color:var(--textdim);line-height:1.7;">Deleting your account will permanently erase all your transactions, assets, settings and goals. A 30-day grace period applies before final deletion.</p></div>'
+    + '<p style="font-size:12px;color:var(--textdim);line-height:1.7;">This immediately erases FinanceOS data stored in this browser, including transactions, assets, settings, goals and the local profile. Export a backup first. It cannot delete copies on other devices or exported files.</p></div>'
     + '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:12px;padding:14px;">'
     + '<label style="font-size:11px;color:var(--red);font-weight:700;display:block;margin-bottom:6px;">TYPE "DELETE" TO CONFIRM</label>'
     + '<input type="text" id="deleteConfirmInput" class="form-input" placeholder="DELETE" oninput="var b=document.getElementById(\'deleteConfirmBtn\');b.disabled=this.value!==\'DELETE\';b.style.opacity=this.value===\'DELETE\'?\'1\':\'0.5\';b.style.cursor=this.value===\'DELETE\'?\'pointer\':\'not-allowed\';" style="border-color:rgba(248,113,113,.3);"/></div>';
@@ -20973,30 +20998,37 @@ function openDeleteAccountModal() {
     + '<button id="deleteConfirmBtn" class="btn-primary" style="flex:2;background:rgba(248,113,113,.2);border-color:rgba(248,113,113,.5);color:var(--red);opacity:.5;cursor:not-allowed;" disabled onclick="confirmAccountDeletion()">Delete My Account</button>';
   _modal('modal-deleteaccount', '🗑 Delete Account', body, footer, 'var(--red)');
 }
-function confirmAccountDeletion() {
-  _closeModal('modal-deleteaccount');
-  showToast('⚠️ Account deletion scheduled — 30-day grace period begins now','info');
+async function confirmAccountDeletion() {
+  const input = document.getElementById('deleteConfirmInput');
+  if (!input || input.value !== 'DELETE') {
+    showToast('Type DELETE exactly to confirm local data removal.', 'warn');
+    return;
+  }
+
+  const button = document.getElementById('deleteConfirmBtn');
+  if (button) { button.disabled = true; button.textContent = 'Deleting…'; }
+
+  try {
+    clearTimeout(_sessionTimer);
+    await DB.clearAll();
+    _closeModal('modal-deleteaccount');
+    showToast('FinanceOS data stored in this browser has been deleted.', 'success');
+    setTimeout(() => location.reload(), 900);
+  } catch (error) {
+    if (button) { button.disabled = false; button.textContent = 'Delete My Account'; }
+    showToast('Data was not fully deleted: ' + (error.message || 'storage error'), 'warn');
+  }
 }
 
 /* ── 3. REVOKE DEVICE SESSION ── */
-function revokeDeviceSession(btn) {
-  var row = btn.parentElement;
-  while (row && !row.style.borderRadius) row = row.parentElement;
-  if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
-  btn.textContent = 'Revoked';
-  btn.style.color = 'var(--textdim)';
-  btn.style.borderColor = 'var(--border)';
-  showToast('🔒 Session revoked — device signed out','info');
+function revokeDeviceSession() {
+  showToast('Remote device sessions are not connected. Use Sign out to lock this browser.', 'warn');
 }
 
 /* ── 4. HELP CENTER (opens AI Advisor with FAQ prompt) ── */
 function openHelpCenter() {
   navigateTo('advisor');
-  setTimeout(function() {
-    var inp = document.getElementById('chatInput') || document.querySelector('[id*="chat"][id*="nput"]');
-    if (inp) { inp.value = 'Show me frequently asked questions and how to use FinanceOS.'; inp.dispatchEvent(new Event('input')); }
-    showToast('💬 AI Help Center ready — ask anything!','info');
-  }, 400);
+  showToast('AI Help Center is not connected yet. Local finance tools remain available.', 'warn');
 }
 
 /* ── 5. CALL SUPPORT MODAL ── */
@@ -21027,8 +21059,7 @@ function openEmailSupportModal() {
 function sendSupportEmail() {
   var msg = document.getElementById('supportEmailBody') && document.getElementById('supportEmailBody').value;
   if (!msg || !msg.trim()) { showToast('Please write a message first','warn'); return; }
-  _closeModal('modal-email');
-  showToast("✅ Message sent — we'll reply within 24 hours",'success');
+  showToast('Support delivery is not connected. Your message has NOT been sent.', 'warn');
 }
 
 /* ── 7. FEEDBACK / REPORT / FEATURE / SURVEY MODAL ── */
@@ -21073,9 +21104,7 @@ function selectFbPriority(btn) {
 function submitFeedback(type, label) {
   var msg = document.getElementById('fbBody') && document.getElementById('fbBody').value;
   if (!msg || !msg.trim()) { showToast('Please add a message before submitting','warn'); return; }
-  _closeModal('modal-feedback');
-  var toasts = { feedback:'💙 Thanks for your feedback!', report:'🐛 Problem reported — our team will investigate', feature:'💡 Feature idea submitted — thanks!', survey:'📊 Survey submitted — thank you!' };
-  showToast(toasts[type]||'✅ Submitted, thank you!','success');
+  showToast('Feedback delivery is not connected. Nothing has been submitted.', 'warn');
 }
 
 /* ── 8. SYSTEM STATUS MODAL ── */
