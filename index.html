@@ -6290,10 +6290,10 @@ Works with any bank format — dates, amounts, descriptions."></textarea>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label">Monthly Income</label><input class="form-input" type="number" id="settingsIncome" value="0" placeholder="e.g. 5000"/></div>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label">Currency</label>
             <select class="form-select" id="settingsCurrency">
-              <option value="USD" selected><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> USD – US Dollar</option>
+              <option value="USD"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> USD – US Dollar</option>
               <option value="EUR"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> EUR – Euro</option>
               <option value="GBP"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> GBP – British Pound</option>
-              <option value="RWF">🇷🇼 RWF – Rwandan Franc</option>
+              <option value="RWF" selected>🇷🇼 RWF – Rwandan Franc</option>
               <option value="KES">🇰🇪 KES – Kenyan Shilling</option>
               <option value="UGX"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> UGX – Ugandan Shilling</option>
               <option value="NGN"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> NGN – Nigerian Naira</option>
@@ -8686,7 +8686,7 @@ const SETTINGS_DEFAULTS = {
   faithStrictMode: false,
   faithNotes:    '',
   // Misc
-  currency:      'USD',
+  currency:      'RWF',
   spendAlert:    80,
   categoryBudgets: {},
 };
@@ -14827,6 +14827,65 @@ function nexusAmt(str) {
   return parseFloat(String(str).replace(/,/g,'')) || 0;
 }
 
+// Parse a date from the SMS text around a matched transaction.
+// If no date is present, return null so the importer can flag its fallback.
+function nexusLocalDate() {
+  const now = new Date();
+  const pad = value => String(value).padStart(2, '0');
+  return String(now.getFullYear()) + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+}
+
+function nexusExtractSmsDate(text, matchIndex, matchLength) {
+  const start = Math.max(0, matchIndex - 50);
+  const end = Math.min(text.length, matchIndex + matchLength + 50);
+  const context = text.slice(start, end);
+  const datePattern = /\b(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})\b|\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})\b/g;
+  const candidates = [];
+  let match;
+
+  while ((match = datePattern.exec(context)) !== null) {
+    let year, month, day;
+    if (match[1]) {
+      year = Number(match[1]);
+      month = Number(match[2]);
+      day = Number(match[3]);
+    } else {
+      const first = Number(match[4]);
+      const second = Number(match[5]);
+      year = Number(match[6]);
+      if (first > 12 && second <= 12) {
+        day = first;
+        month = second;
+      } else if (second > 12 && first <= 12) {
+        month = first;
+        day = second;
+      } else {
+        // Rwanda's standard date order is day/month/year.
+        day = first;
+        month = second;
+      }
+    }
+
+    if (year < 100) year += 2000;
+    const check = new Date(Date.UTC(year, month - 1, day));
+    if (
+      month < 1 || month > 12 || day < 1 || day > 31 ||
+      check.getUTCFullYear() !== year ||
+      check.getUTCMonth() !== month - 1 ||
+      check.getUTCDate() !== day
+    ) continue;
+
+    const pad = value => String(value).padStart(2, '0');
+    candidates.push({
+      date: String(year) + '-' + pad(month) + '-' + pad(day),
+      distance: Math.abs(start + match.index - matchIndex),
+    });
+  }
+
+  candidates.sort((a, b) => a.distance - b.distance);
+  return candidates[0]?.date || null;
+}
+
 // ── NEXUS Core Object ────────────────────────────────────────────────────────
 const NEXUS = {
   _activityLog: [],   // session log of parsed/imported SMS
@@ -14845,7 +14904,11 @@ const NEXUS = {
         try {
           const data = pat.extract(m);
           if (!data || !data.amount) continue;
-          const dedupeKey = `${pat.bank}|${data.amount}|${data.type}|${data.ref||''}`;
+          const parsedDate = nexusExtractSmsDate(text, m.index, m[0].length);
+          const transactionDate = parsedDate || nexusLocalDate();
+          const dedupeKey = data.ref
+            ? `${pat.bank}|ref:${data.ref}`
+            : `${pat.bank}|${data.type}|${data.amount}|${data.desc || ''}|${transactionDate}|${m[0].trim()}`;
           if (seen.has(dedupeKey)) continue;
           seen.add(dedupeKey);
 
@@ -14859,7 +14922,8 @@ const NEXUS = {
             ref: data.ref || null,       // SMS reference/transaction ID
             balance: data.balance || null,
             desc: data.desc || '',
-            date: new Date().toISOString().split('T')[0],
+            date: transactionDate,
+            dateEstimated: !parsedDate,
             cat: inferMomoCat(data.party + ' ' + data.desc),
             rawSms: m[0].substring(0, 200),
           });
@@ -14880,6 +14944,9 @@ const NEXUS = {
   import(parsed) {
     let imported = 0;
     let latestBalance = null;
+    let latestBalanceDate = null;
+    let latestBalanceSource = 'SMS';
+    this._lastBalanceAmbiguous = false;
 
     parsed.forEach(t => {
       // Dedup: same date + amount + desc
@@ -14904,22 +14971,31 @@ const NEXUS = {
       transactions.push(txObj);
       imported++;
 
-      // Track most recent balance from SMS
-      if (t.balance && t.balance > 0) {
-        if (latestBalance === null || t.balance > latestBalance) {
-          latestBalance = t.balance;
-        }
-      }
     });
 
-    if (latestBalance !== null) {
-      this._lastBalance = latestBalance;
-      // Store SMS-confirmed balance as GROUND TRUTH — overrides manual entry everywhere
-      SETTINGS.smsConfirmedBalance = latestBalance;
-      SETTINGS.smsBalanceDate = new Date().toISOString().split('T')[0];
-      SETTINGS.smsBalanceSource = parsed.find(p => p.balance === latestBalance)?.bank || 'SMS';
-      // Propagate to live cash balance shown on dashboard
-      nexusApplyGroundTruthBalance(latestBalance);
+    // Never choose the largest balance: it may be older or belong to another bank.
+    // Apply ground truth only when the newest dated balance is unambiguous.
+    const balanceRows = parsed.filter(t => Number(t.balance) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(t.date || ''));
+    if (balanceRows.length) {
+      latestBalanceDate = balanceRows.reduce(
+        (latest, row) => row.date > latest ? row.date : latest,
+        balanceRows[0].date
+      );
+      const latestRows = balanceRows.filter(row => row.date === latestBalanceDate);
+      const balances = [...new Set(latestRows.map(row => Number(row.balance)))];
+      const sources = [...new Set(latestRows.map(row => row.bank).filter(Boolean))];
+
+      if (balances.length === 1 && sources.length === 1) {
+        latestBalance = balances[0];
+        latestBalanceSource = sources[0];
+        this._lastBalance = latestBalance;
+        SETTINGS.smsConfirmedBalance = latestBalance;
+        SETTINGS.smsBalanceDate = latestBalanceDate;
+        SETTINGS.smsBalanceSource = latestBalanceSource;
+        nexusApplyGroundTruthBalance(latestBalance);
+      } else {
+        this._lastBalanceAmbiguous = true;
+      }
     }
 
     if (imported > 0) {
@@ -15332,8 +15408,10 @@ function nexusImport() {
   if (!_nexusParsed || !_nexusParsed.length) return;
 
   const parsedCount = _nexusParsed.length;
+  const estimatedDateCount = _nexusParsed.filter(t => t.dateEstimated).length;
   const imported = NEXUS.import(_nexusParsed);
   const skipped = Math.max(0, parsedCount - imported);
+  const balanceAmbiguous = NEXUS._lastBalanceAmbiguous;
 
   _nexusParsed = null;
   const input = document.getElementById('nexusSmsInput');
@@ -15341,10 +15419,12 @@ function nexusImport() {
   if (input) input.value = '';
   if (preview) preview.innerHTML = '';
 
-  const duplicateNote = skipped
-    ? ` (${skipped} duplicate${skipped === 1 ? '' : 's'} skipped)`
-    : '';
-  showToast(`NEXUS imported ${imported} transaction${imported !== 1 ? 's' : ''}${duplicateNote}.`, 'success');
+  const notes = [];
+  if (skipped) notes.push(`${skipped} duplicate${skipped === 1 ? '' : 's'} skipped`);
+  if (estimatedDateCount) notes.push(`${estimatedDateCount} SMS date${estimatedDateCount === 1 ? '' : 's'} missing; saved as today`);
+  if (balanceAmbiguous) notes.push('current balance left unchanged because newest SMS balances are ambiguous');
+  const detail = notes.length ? ` (${notes.join('; ')})` : '';
+  showToast(`NEXUS imported ${imported} transaction${imported !== 1 ? 's' : ''}${detail}.`, balanceAmbiguous ? 'warn' : 'success');
   renderSmsPage();
   // Run brain after import
   setTimeout(() => NEXUS.think(), 300);
@@ -20262,7 +20342,7 @@ function obSkip() {
 function uflSocialAuth(provider) {
   // Simulate social auth — in production this would OAuth redirect
   // For now: treat as quick-signup with provider name
-  uflLaunchApp({ name: '', age: 25, income: 0, currency: 'USD', social: provider });
+  uflLaunchApp({ name: '', age: 25, income: 0, currency: 'RWF', social: provider });
 }
 
 // ══════════════════════════════════════════════════════════════════════
