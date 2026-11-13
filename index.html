@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <!-- v40 Security: Content-Security-Policy restricts script/style sources -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.anthropic.com; worker-src blob:;"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self'; worker-src 'self' blob:;"/>
 
 <!-- ── PWA / App Recognition ── -->
 <meta name="application-name" content="FinanceOS"/>
@@ -12112,7 +12112,7 @@ async function runWeeklyReview() {
 
   try {
     const prompt = await AutomationEngine.runWeeklyReview();
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -12817,7 +12817,7 @@ async function sendChat() {
   const typingWrap = addChatMsg('assistant', '__typing__');
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -13227,7 +13227,7 @@ async function runBankAnalysis() {
   const prompt = 'Analyze this bank statement for a user in Rwanda. Currency: ' + SETTINGS.currency + '.\n\nReturn ONLY valid JSON with these exact keys:\n{\n  "period": "string",\n  "totalIncome": number,\n  "totalExpenses": number,\n  "savingsRate": number,\n  "net": number,\n  "categories": [{"name":"string","amount":number,"pct":number,"emoji":"string"}],\n  "waste": [{"title":"string","amount":number,"reason":"string","fix":"string"}],\n  "actions": [{"emoji":"string","title":"string","detail":"string","impact":"string"}],\n  "verdict": "string",\n  "score": number,\n  "faithIssues": [{"title":"string","detail":"string","severity":"warning|critical"}]\n}\n\nRules: categories top 6 by amount, waste 3-5 items, actions exactly 3, score 1-10.' + faithLine + '\n\nStatement:\n' + text.slice(0, 3000);
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1200, messages: [{ role: 'user', content: prompt }] })
@@ -14164,7 +14164,7 @@ async function fpAiReroute(income, expenses, savings, diff) {
   const result = document.getElementById('fpAiResult');
   result.innerHTML = '<span class="spin-gps">⟳</span> GPS recalculating... AI rewriting your path...';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await fetch('/api/ai',{
       method:'POST',
       headers: aiHeaders(),
       body:JSON.stringify({
@@ -15336,7 +15336,7 @@ async function nexusAiParse(text) {
   if (previewEl) previewEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--textdim);font-size:13px;">🤖 NEXUS is asking Claude to parse this SMS format…</div>';
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -15648,7 +15648,7 @@ async function runLeakHunter() {
   const { newFreedomAge } = leakFreedomImpact(totalLeak);
   const leakSummary = leaks.map(l=>`${l.label}: ${fpFmt(l.actual)}/mo (excess ${fpFmt(l.excess)})`).join(', ');
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await fetch('/api/ai',{
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:400,
         messages:[{role:'user',content:`Financial leak analysis. Age ${fpGetAgeNow()}, currency: ${SETTINGS.currency}. Income: ${fpFmt(getMonthlyIncome())}/mo. Computed freedom age: ${fpGetCurrentFreedomAge()} → fixing leaks moves to Age ${newFreedomAge}.
@@ -15742,7 +15742,7 @@ async function runSimulator() {
   box.textContent = '⟳ Calculating true cost on your freedom path…';
   box.style.color = 'var(--textmid)';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await fetch('/api/ai',{
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:500,
         messages:[{role:'user',content:`Decision engine. Age ${ageNow}, currency: ${SETTINGS.currency}. Freedom target: Age ${freedomAge} (${fpFmt(SETTINGS.freedomNumber)}). Monthly savings: ~${fpFmt(monthlySaved)}.
@@ -15792,7 +15792,7 @@ async function runIncomeScanner() {
   box.textContent = '⟳ Scanning income opportunities for your profile…';
   box.style.color = 'var(--textmid)';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await fetch('/api/ai',{
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:600,
         messages:[{role:'user',content:`Income scanner. Age ${ageNow}, currency: ${SETTINGS.currency}. Current income: ${fpFmt(income)}/mo (1 stream). Freedom target: Age ${base} (${fpFmt(SETTINGS.freedomNumber)} net worth).
@@ -19905,7 +19905,7 @@ async function runBizAnalysis() {
   const paybackMonths    = bizNetProfit > 0 ? Math.ceil(startup / bizNetProfit) : 999;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
