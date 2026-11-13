@@ -4324,20 +4324,10 @@
 
       <div style="margin-bottom:24px;">
         <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:24px;font-weight:800;margin-bottom:5px;letter-spacing:-0.3px;">Create account</div>
-        <div style="color:var(--textdim);font-size:13px;">Start tracking your money today</div>
+        <div style="color:var(--textdim);font-size:13px;">Create a local profile on this device</div>
       </div>
 
-      <!-- Social sign up -->
-      <div style="display:flex;gap:10px;margin-bottom:20px;">
-        <button class="ufl-btn-social" onclick="uflSocialAuth('Google')" style="flex:1;">
-          <svg width="16" height="16" viewBox="0 0 18 18"><path d="M17.64 9.2a10 10 0 00-.16-1.72H9v3.26h4.85a4.14 4.14 0 01-1.8 2.71v2.26h2.91a8.78 8.78 0 002.68-6.51z" fill="#4285F4"/><path d="M9 18a8.6 8.6 0 005.96-2.18l-2.91-2.26a5.43 5.43 0 01-8.08-2.85H.96v2.33A9 9 0 009 18z" fill="#34A853"/><path d="M3.96 10.71a5.4 5.4 0 010-3.42V4.96H.96a9 9 0 000 8.08l3-2.33z" fill="#FBBC05"/><path d="M9 3.58a4.86 4.86 0 013.44 1.35L14.56 2.9A8.65 8.65 0 009 .99a9 9 0 00-8.04 4.97l3 2.33A5.37 5.37 0 019 3.58z" fill="#EA4335"/></svg>
-          Continue with Google
-        </button>
-        <button class="ufl-btn-social" onclick="uflSocialAuth('Facebook')" style="flex:0 0 auto;padding:12px 14px;">
-          <svg width="16" height="16" viewBox="0 0 18 18"><circle cx="9" cy="9" r="9" fill="#1877F2"/><path d="M12.5 11.5l.4-2.8H10.2V7.2c0-.76.37-1.5 1.57-1.5H13V3.3s-1.17-.2-2.3-.2c-2.34 0-3.87 1.42-3.87 4v2.6H4.5v2.8h2.33V18a9.1 9.1 0 002.84 0V11.5H12.5z" fill="#fff"/></svg>
-        </button>
-      </div>
-
+      <div style="margin-bottom:18px;padding:11px 13px;border:1px solid var(--border);border-radius:10px;color:var(--textdim);font-size:11px;line-height:1.6;">Google and Facebook sign-in are not connected. This profile is stored on this device.</div>
       <div class="ufl-divider">or with email</div>
 
       <div style="display:flex;flex-direction:column;gap:14px;margin-top:18px;">
@@ -4404,20 +4394,10 @@
 
       <div style="margin-bottom:28px;">
         <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:24px;font-weight:800;margin-bottom:5px;letter-spacing:-0.3px;">Welcome back</div>
-        <div style="color:var(--textdim);font-size:13px;">Log in to your FinanceOS account</div>
+        <div style="color:var(--textdim);font-size:13px;">Unlock the FinanceOS profile stored on this device</div>
       </div>
 
-      <!-- Social login -->
-      <div style="display:flex;gap:10px;margin-bottom:20px;">
-        <button class="ufl-btn-social" onclick="uflSocialAuth('Google')" style="flex:1;">
-          <svg width="16" height="16" viewBox="0 0 18 18"><path d="M17.64 9.2a10 10 0 00-.16-1.72H9v3.26h4.85a4.14 4.14 0 01-1.8 2.71v2.26h2.91a8.78 8.78 0 002.68-6.51z" fill="#4285F4"/><path d="M9 18a8.6 8.6 0 005.96-2.18l-2.91-2.26a5.43 5.43 0 01-8.08-2.85H.96v2.33A9 9 0 009 18z" fill="#34A853"/><path d="M3.96 10.71a5.4 5.4 0 010-3.42V4.96H.96a9 9 0 000 8.08l3-2.33z" fill="#FBBC05"/><path d="M9 3.58a4.86 4.86 0 013.44 1.35L14.56 2.9A8.65 8.65 0 009 .99a9 9 0 00-8.04 4.97l3 2.33A5.37 5.37 0 019 3.58z" fill="#EA4335"/></svg>
-          Continue with Google
-        </button>
-        <button class="ufl-btn-social" onclick="uflSocialAuth('Facebook')" style="flex:0 0 auto;padding:12px 14px;">
-          <svg width="16" height="16" viewBox="0 0 18 18"><circle cx="9" cy="9" r="9" fill="#1877F2"/><path d="M12.5 11.5l.4-2.8H10.2V7.2c0-.76.37-1.5 1.57-1.5H13V3.3s-1.17-.2-2.3-.2c-2.34 0-3.87 1.42-3.87 4v2.6H4.5v2.8h2.33V18a9.1 9.1 0 002.84 0V11.5H12.5z" fill="#fff"/></svg>
-        </button>
-      </div>
-
+      <div style="margin-bottom:18px;padding:11px 13px;border:1px solid var(--border);border-radius:10px;color:var(--textdim);font-size:11px;line-height:1.6;">Google and Facebook sign-in are not connected. This profile is stored on this device.</div>
       <div class="ufl-divider">or with email</div>
 
       <div style="display:flex;flex-direction:column;gap:14px;margin-top:18px;">
@@ -4441,6 +4421,7 @@
 
       <div class="ufl-err" id="li-err" style="margin-top:10px;"></div>
       <button class="ufl-btn-primary" onclick="uflLogin()" style="margin-top:18px;">Log in</button>
+      <button class="ufl-link-dim" onclick="uflSkipToApp()" style="display:block;margin:12px auto 0;">Continue without account</button>
       <div style="text-align:center;margin-top:16px;font-size:13px;color:var(--textdim);">
         Don't have an account? <button class="ufl-link" onclick="uflGoTo('ufl-signup')">Sign up</button>
       </div>
@@ -4459,14 +4440,14 @@
   <circle cx="22" cy="22" r="5" stroke="rgba(212,168,67,0.4)" stroke-width="1.5"/>
 </svg></div>
         <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:22px;font-weight:800;margin-bottom:8px;">Forgot password?</div>
-        <div style="color:var(--textdim);font-size:13px;line-height:1.6;">No worries — enter your email and we'll send you a reset link.</div>
+        <div style="color:var(--textdim);font-size:13px;line-height:1.6;">Password recovery is not connected. Your local profile and data stay in this browser.</div>
       </div>
       <div style="margin-bottom:14px;">
         <label class="ufl-label">Your email</label>
         <input class="ufl-input" type="email" id="fp-email" placeholder="you@email.com" onkeydown="if(event.key==='Enter')uflForgotSend()"/>
       </div>
       <div class="ufl-err" id="fp-err" style="margin-top:8px;"></div>
-      <button class="ufl-btn-primary" onclick="uflForgotSend()" style="margin-top:14px;">Send reset link</button>
+      <button class="ufl-btn-primary" onclick="uflForgotSend()" style="margin-top:14px;">Show recovery options</button>
       <div style="text-align:center;margin-top:16px;">
         <button class="ufl-link-dim" onclick="uflGoTo('ufl-login')">Back to login</button>
       </div>
@@ -20274,7 +20255,9 @@ document.addEventListener('click', function(e) {
 
 function uflLogout() {
   closeProfilePopover();
-  // Clear session flag — keeps local data intact so returning users see their data on next login
+  clearTimeout(_sessionTimer);
+  sessionStorage.removeItem('fos_session_active');
+  // Keep local finance data, but require the local unlock screen again.
   localStorage.removeItem('fos_onboarded');
 
   // Show the auth layer with a smooth fade-in, going straight to the auth screen (skip splash/onboarding)
@@ -20376,9 +20359,7 @@ function obSkip() {
 
 // ── SOCIAL AUTH ──────────────────────────────────────────────
 function uflSocialAuth(provider) {
-  // Simulate social auth — in production this would OAuth redirect
-  // For now: treat as quick-signup with provider name
-  uflLaunchApp({ name: '', age: 25, income: 0, currency: 'RWF', social: provider });
+  showToast(`${provider || 'Social'} sign-in is not connected. Use a local email/password profile or continue without an account.`, 'warn');
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -20468,14 +20449,17 @@ const SESSION_MS  = 30 * 60 * 1000;
 function _armSessionTimer() {
   clearTimeout(_sessionTimer);
   _sessionTimer = setTimeout(() => {
-    showToast('⏱ Session expired — please log in again.', 'warn');
+    showToast('⏱ Local session expired — unlock FinanceOS to continue.', 'warn');
     setTimeout(() => {
       localStorage.removeItem('fos_onboarded');
+      sessionStorage.removeItem('fos_session_active');
       location.reload();
     }, 2500);
   }, SESSION_MS);
 }
-function _resetSessionTimer() { if (localStorage.getItem('fos_onboarded')) _armSessionTimer(); }
+function _resetSessionTimer() {
+  if (sessionStorage.getItem('fos_session_active') === '1') _armSessionTimer();
+}
 ['click','keydown','touchstart','scroll'].forEach(ev =>
   document.addEventListener(ev, _resetSessionTimer, { passive: true })
 );
@@ -20528,21 +20512,16 @@ async function uflLogin() {
   if (btn) { btn.disabled = true; btn.textContent = 'Verifying…'; }
 
   const stored = AUTH.get();
-  let ok = false;
-
   if (!stored) {
-    // No credentials on device — device may have been cleared; load data if present
     const saved = DB.load();
-    ok = !!saved; // allow if data already present (existing install without creds)
-    if (!ok) {
-      // Brand new device, no data — guide to sign up
-      errEl.textContent = 'No account found on this device. Please sign up.';
-      if (btn) { btn.disabled = false; btn.textContent = 'Log in'; }
-      return;
-    }
-  } else {
-    ok = await AUTH.verify(email, password);
+    errEl.textContent = saved
+      ? 'This device has saved FinanceOS data but no local password. Go back and choose “Continue without account” to open it.'
+      : 'No local account found on this device. Please sign up or continue without an account.';
+    if (btn) { btn.disabled = false; btn.textContent = 'Log in'; }
+    return;
   }
+
+  const ok = await AUTH.verify(email, password);
 
   if (!ok) {
     BRUTE.record();
@@ -20563,41 +20542,16 @@ async function uflLogin() {
 
 // ── FORGOT PASSWORD [v40 — clarifies local-only limitation] ─
 function uflForgotSend() {
-  const email = document.getElementById('fp-email')?.value.trim();
   const errEl = document.getElementById('fp-err');
-  if (!email || !email.includes('@')) { errEl.textContent = 'Please enter a valid email address.'; return; }
-
-  const stored = AUTH.get();
-  errEl.style.color = 'var(--green)';
-  if (stored && stored.email === email.toLowerCase().trim()) {
-    // Correct email — show reset form
-    errEl.innerHTML = '✅ Email matched. Set your new password below.';
-    setTimeout(() => { errEl.style.color=''; errEl.textContent=''; uflGoTo('ufl-reset'); }, 1800);
-  } else {
-    // Email not found — don't reveal whether account exists (prevent enumeration)
-    errEl.innerHTML = '✅ If that email is registered, you can reset your password below.';
-    setTimeout(() => { errEl.style.color=''; errEl.textContent=''; uflGoTo('ufl-reset'); }, 1800);
-  }
+  if (!errEl) return;
+  errEl.style.color = 'var(--gold)';
+  errEl.textContent = 'Email recovery is not configured. FinanceOS stores this profile on this device only. Use your existing password, or return and choose “Continue without account” to access local data.';
 }
 
 // ── RESET PASSWORD [v40 — actually updates stored hash] ─────
 async function uflResetPassword() {
-  const newPwd  = document.getElementById('rp-new')?.value;
-  const confirm = document.getElementById('rp-confirm')?.value;
-  const errEl   = document.getElementById('rp-err');
-
-  if (!newPwd || newPwd.length < 8)  { errEl.textContent = 'New password must be at least 8 characters.'; return; }
-  if (newPwd !== confirm)            { errEl.textContent = 'Passwords do not match.'; return; }
-
-  errEl.textContent = '';
-  const stored = AUTH.get();
-  if (stored) {
-    await AUTH.update(newPwd); // re-hash with new password
-  }
-  // If no stored creds (old install), just proceed — data is already on device
-  BRUTE.reset();
-  _armSessionTimer();
-  uflLaunchApp(null);
+  const errEl = document.getElementById('rp-err');
+  if (errEl) errEl.textContent = 'A verified password-reset service is not configured. Return to login or continue without an account to access data stored on this device.';
 }
 
 // ── SKIP (Continue without account) ────────────────────────
@@ -20639,7 +20593,8 @@ function uflLaunchApp(userData) {
   }
   const isNewSignup = !!userData; // only true on uflSignUp, not login/skip
   localStorage.setItem('fos_onboarded', '1');
-  _armSessionTimer(); // v40 — start 30-min inactivity watchdog
+  sessionStorage.setItem('fos_session_active', '1');
+  _armSessionTimer(); // local 30-minute inactivity lock
 
   // Animate out the flow layer
   const layer = document.getElementById('userFlowLayer');
@@ -20835,14 +20790,16 @@ function _qsSkip() {
 
 // ── INIT: Show flow layer or skip if returning user ─────────
 function checkOnboarding() {
-  const saved   = DB.load();
-  const skipped = localStorage.getItem('fos_onboarded');
+  const saved = DB.load();
+  const hasLocalAccount = !!AUTH.get();
+  const hasLocalSession = sessionStorage.getItem('fos_session_active') === '1';
+  const hasLocalProfile = !!saved || !!localStorage.getItem('fos_onboarded');
 
-  if (skipped || saved) {
-    // Returning user — skip flow, go straight to app
+  if (hasLocalSession) {
     const layer = document.getElementById('userFlowLayer');
     if (layer) layer.style.display = 'none';
     updateAvatar();
+    _armSessionTimer();
     try { renderAll(); } catch(e) {
       console.error('[FinanceOS] renderAll() failed on startup:', e);
       try { renderDashboard(); } catch(e2) {
@@ -20850,10 +20807,22 @@ function checkOnboarding() {
         if (pg) { pg.style.display = 'block'; pg.classList.add('active'); }
       }
     }
-  } else {
-    // New user — start the flow
-    uflStartSplash();
+    return;
   }
+
+  if (hasLocalAccount || hasLocalProfile) {
+    // Existing data must not bypass the local unlock screen after logout,
+    // timeout, or opening FinanceOS in a new tab.
+    const layer = document.getElementById('userFlowLayer');
+    if (layer) layer.style.display = '';
+    document.querySelectorAll('.ufl-screen').forEach(screen => screen.classList.remove('active', 'exit-up'));
+    const authScreen = document.getElementById('ufl-auth');
+    if (authScreen) authScreen.classList.add('active');
+    return;
+  }
+
+  // Brand-new browser profile.
+  uflStartSplash();
 }
 
 // Keep these as no-ops for backward compatibility
@@ -20989,8 +20958,7 @@ async function submitPasswordChange() {
   showToast('✅ Password updated successfully', 'success');
 }
 function sendPinReset() {
-  _closeModal('modal-changepw');
-  showToast('📧 PIN reset email sent to your registered address','success');
+  showToast('Email/PIN recovery is not configured for this local-only profile.','warn');
 }
 
 /* ── 2. DELETE ACCOUNT MODAL ── */
