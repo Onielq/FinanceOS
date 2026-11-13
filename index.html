@@ -9874,7 +9874,7 @@ const SETTINGS_DEFAULTS = {
   showFx:            false,
   fxDisplayCurrency: '',
   // AI
-  aiKey:         'built-in', // AI is built-in — no user key required
+  aiKey:         '', // AI is built-in — no user key required
   aiStyle:       'coach',
   aiContext:     '',
   // Faith & Finance
@@ -9895,28 +9895,20 @@ const SETTINGS = Object.assign({}, SETTINGS_DEFAULTS);
 
 // ── AI API helper — always use this for fetch headers ──
 function aiHeaders() {
-  // AI is built-in — no user API key needed.
-  // The 'built-in' sentinel in SETTINGS.aiKey signals we use the platform proxy.
-  const key = (SETTINGS.aiKey||'').trim();
-  const h = { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
-  if (key && key !== 'built-in') h['x-api-key'] = key;
-  return h;
+  // Never send provider credentials directly from the browser.
+  return { 'Content-Type': 'application/json' };
 }
+
 function toggleAiKeyVis() {
   const el = document.getElementById('settingsAiKey');
   if (!el) return;
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 function aiKeyMissing() {
-  // AI is built-in — no key needed. Legacy guard kept for safety but always returns false.
-  const key = (SETTINGS.aiKey||'').trim();
-  if (!key || key === 'built-in') return false; // AI is ready, no blocking alert
-  if (false) { // unreachable — original alert preserved for reference only
-    alert('\u26a0\ufe0f  No API key found.\n\nGo to Settings \u2192 \ud83e\udd16 AI Advisor \u2192 paste your Anthropic API key, then save.');
-    return true;
-  }
-  return false;
+  showToast('AI is not connected in this test build. No financial data was sent to an AI provider.', 'warn');
+  return true;
 }
+
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 const CATS = {
@@ -9987,10 +9979,11 @@ const monthlyHistory = buildMonthlyHistory();
 // Fix #2: recurringTx — recurring transaction rules
 let recurringTx = [];
 
-(function initFromDB() {
-  const saved = DB.load();
+(async function initFromDB() {
+  const saved = await DB.loadAsync();
   if (!saved) return;
   if (saved.settings)      Object.assign(SETTINGS, saved.settings);
+  SETTINGS.aiKey = '';
   if (saved.transactions)  transactions = saved.transactions;
   if (saved.assets)        assets = saved.assets;
   if (saved.recurringTx)   recurringTx = saved.recurringTx;
@@ -10002,6 +9995,7 @@ let recurringTx = [];
   if (saved.opportunities) { try { localStorage.setItem('finOS_opportunities', JSON.stringify(saved.opportunities)); } catch(e){} }
   if (saved.assetGrowthHistory) { try { localStorage.setItem('assetGrowthHx', JSON.stringify(saved.assetGrowthHistory)); } catch(e){} }
   if (saved.netWorthHistory)    { try { localStorage.setItem('fos_nw_history', JSON.stringify(saved.netWorthHistory)); } catch(e){} }
+  try { renderAll(); refreshDataStats(); } catch(e) { console.warn('FinanceOS restored state; initial render will retry.', e); }
 })();
 
 // ─── DB WRITE — call after any mutation ─────────────────────────────────────
@@ -13452,7 +13446,7 @@ async function runWeeklyReview() {
 
   try {
     const prompt = await AutomationEngine.runWeeklyReview();
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -14158,7 +14152,7 @@ async function sendChat() {
   const typingWrap = addChatMsg('assistant', '__typing__');
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -14568,7 +14562,7 @@ async function runBankAnalysis() {
   const prompt = 'Analyze this bank statement for a user in Rwanda. Currency: ' + SETTINGS.currency + '.\n\nReturn ONLY valid JSON with these exact keys:\n{\n  "period": "string",\n  "totalIncome": number,\n  "totalExpenses": number,\n  "savingsRate": number,\n  "net": number,\n  "categories": [{"name":"string","amount":number,"pct":number,"emoji":"string"}],\n  "waste": [{"title":"string","amount":number,"reason":"string","fix":"string"}],\n  "actions": [{"emoji":"string","title":"string","detail":"string","impact":"string"}],\n  "verdict": "string",\n  "score": number,\n  "faithIssues": [{"title":"string","detail":"string","severity":"warning|critical"}]\n}\n\nRules: categories top 6 by amount, waste 3-5 items, actions exactly 3, score 1-10.' + faithLine + '\n\nStatement:\n' + text.slice(0, 3000);
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1200, messages: [{ role: 'user', content: prompt }] })
@@ -15630,7 +15624,7 @@ async function fpAiReroute(income, expenses, savings, diff) {
   const result = document.getElementById('fpAiResult');
   result.innerHTML = '<span class="spin-gps">⟳</span> GPS recalculating... AI rewriting your path...';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await fetch('/api/ai',{
       method:'POST',
       headers: aiHeaders(),
       body:JSON.stringify({
@@ -16802,7 +16796,7 @@ async function nexusAiParse(text) {
   if (previewEl) previewEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--textdim);font-size:13px;">🤖 NEXUS is asking Claude to parse this SMS format…</div>';
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -16988,7 +16982,7 @@ function nexusExtractDate(smsText) {
     if (previewEl) previewEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--textdim);font-size:13px;">🤖 NEXUS is asking Claude to parse this message…</div>';
 
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      const resp = await fetch('/api/ai', {
         method: 'POST',
         headers: aiHeaders(),
         body: JSON.stringify({
@@ -17330,7 +17324,7 @@ async function runLeakHunter() {
   const { newFreedomAge } = leakFreedomImpact(totalLeak);
   const leakSummary = leaks.map(l=>`${l.label}: ${fpFmt(l.actual)}/mo (excess ${fpFmt(l.excess)})`).join(', ');
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await fetch('/api/ai',{
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:400,
         messages:[{role:'user',content:`Financial leak analysis. Age ${fpGetAgeNow()}, currency: ${SETTINGS.currency}. Income: ${fpFmt(getMonthlyIncome())}/mo. Computed freedom age: ${fpGetCurrentFreedomAge()} → fixing leaks moves to Age ${newFreedomAge}.
@@ -17424,7 +17418,7 @@ async function runSimulator() {
   box.textContent = '⟳ Calculating true cost on your freedom path…';
   box.style.color = 'var(--textmid)';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await fetch('/api/ai',{
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:500,
         messages:[{role:'user',content:`Decision engine. Age ${ageNow}, currency: ${SETTINGS.currency}. Freedom target: Age ${freedomAge} (${fpFmt(SETTINGS.freedomNumber)}). Monthly savings: ~${fpFmt(monthlySaved)}.
@@ -17474,7 +17468,7 @@ async function runIncomeScanner() {
   box.textContent = '⟳ Scanning income opportunities for your profile…';
   box.style.color = 'var(--textmid)';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await fetch('/api/ai',{
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:600,
         messages:[{role:'user',content:`Income scanner. Age ${ageNow}, currency: ${SETTINGS.currency}. Current income: ${fpFmt(income)}/mo (1 stream). Freedom target: Age ${base} (${fpFmt(SETTINGS.freedomNumber)} net worth).
@@ -21753,7 +21747,7 @@ async function runBizAnalysis() {
   const paybackMonths    = bizNetProfit > 0 ? Math.ceil(startup / bizNetProfit) : 999;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai', {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -22071,26 +22065,10 @@ function obNext() {
 
 // ── SOCIAL AUTH ──────────────────────────────────────────────
 function uflSocialAuth(provider) {
-  // Simulate social auth — in production this would OAuth redirect
-  // For now: treat as quick-signup with provider name
-  uflLaunchApp({ name: '', age: 25, income: 0, currency: 'USD', social: provider });
+  const label = String(provider || 'social').replace(/[^a-z0-9 -]/gi, '');
+  showToast(label + ' sign-in is not connected. Use the local device profile instead.', 'warn');
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// CREDENTIAL & SESSION SECURITY LAYER  [v40 — new]
-//
-// Loopholes patched:
-//  • uflLogin() previously accepted ANY email/password → now verifies hash
-//  • uflResetPassword() accepted any 4-char code → now requires re-signup
-//  • submitPasswordChange() showed success without verifying → now re-hashes
-//  • No brute-force protection → now: 5 failures = 30 s lockout
-//  • No session expiry → now: 30 min inactivity auto-logout
-//
-// Credential storage: PBKDF2-SHA256, 150 000 iterations, 16-byte random salt.
-// Stored in localStorage as {email, hash, salt, created} — never plaintext.
-// ══════════════════════════════════════════════════════════════════════
-
-// ── Helpers ──────────────────────────────────────────────────────────
 function _hexToBytes(hex) {
   const b = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) b[i/2] = parseInt(hex.slice(i,i+2), 16);
@@ -22226,18 +22204,11 @@ async function uflLogin() {
   let ok = false;
 
   if (!stored) {
-    // No credentials on device — device may have been cleared; load data if present
-    const saved = DB.load();
-    ok = !!saved; // allow if data already present (existing install without creds)
-    if (!ok) {
-      // Brand new device, no data — guide to sign up
-      errEl.textContent = 'No account found on this device. Please sign up.';
-      if (btn) { btn.disabled = false; btn.textContent = 'Log in'; }
-      return;
-    }
-  } else {
-    ok = await AUTH.verify(email, password);
+    errEl.textContent = 'No local password is registered on this device. Sign up to create one, or use Continue without an account.';
+    if (btn) { btn.disabled = false; btn.textContent = 'Log in'; }
+    return;
   }
+  ok = await AUTH.verify(email, password);
 
   if (!ok) {
     BRUTE.record();
@@ -22260,42 +22231,23 @@ async function uflLogin() {
 function uflForgotSend() {
   const email = document.getElementById('fp-email')?.value.trim();
   const errEl = document.getElementById('fp-err');
-  if (!email || !email.includes('@')) { errEl.textContent = 'Please enter a valid email address.'; return; }
-
-  const stored = AUTH.get();
-  errEl.style.color = 'var(--green)';
-  if (stored && stored.email === email.toLowerCase().trim()) {
-    // Correct email — show reset form
-    errEl.innerHTML = '✅ Email matched. Set your new password below.';
-    setTimeout(() => { errEl.style.color=''; errEl.textContent=''; uflGoTo('ufl-reset'); }, 1800);
-  } else {
-    // Email not found — don't reveal whether account exists (prevent enumeration)
-    errEl.innerHTML = '✅ If that email is registered, you can reset your password below.';
-    setTimeout(() => { errEl.style.color=''; errEl.textContent=''; uflGoTo('ufl-reset'); }, 1800);
+  if (!email || !email.includes('@')) {
+    errEl.textContent = 'Please enter a valid email address.';
+    return;
   }
+  errEl.style.color = 'var(--red)';
+  errEl.textContent = 'Email recovery is not connected. FinanceOS stores this profile on this device only. Use your current password to change it. If you lost it, export any recoverable backup before resetting local data.';
 }
 
-// ── RESET PASSWORD [v40 — actually updates stored hash] ─────
 async function uflResetPassword() {
-  const newPwd  = document.getElementById('rp-new')?.value;
-  const confirm = document.getElementById('rp-confirm')?.value;
-  const errEl   = document.getElementById('rp-err');
-
-  if (!newPwd || newPwd.length < 8)  { errEl.textContent = 'New password must be at least 8 characters.'; return; }
-  if (newPwd !== confirm)            { errEl.textContent = 'Passwords do not match.'; return; }
-
-  errEl.textContent = '';
-  const stored = AUTH.get();
-  if (stored) {
-    await AUTH.update(newPwd); // re-hash with new password
+  const errEl = document.getElementById('rp-err');
+  if (errEl) {
+    errEl.style.color = 'var(--red)';
+    errEl.textContent = 'Password reset cannot be verified by email in this local-only build. Return to login and use your current device password.';
   }
-  // If no stored creds (old install), just proceed — data is already on device
-  BRUTE.reset();
-  _armSessionTimer();
-  uflLaunchApp(null);
+  showToast('Email-based password recovery is not connected.', 'warn');
 }
 
-// ── SKIP (Continue without account) ────────────────────────
 function uflSkipToApp() {
   localStorage.setItem('fos_onboarded', '1');
   uflLaunchApp(null);
@@ -22658,6 +22610,7 @@ async function submitPasswordChange() {
   if (nw !== cf) { showToast('Passwords do not match', 'warn'); return; }
 
   const stored = AUTH.get();
+  if (!stored) { showToast('No local password is registered on this device.', 'warn'); return; }
   if (stored) {
     const valid = await AUTH.verify(stored.email, cur);
     if (!valid) { showToast('Current password is incorrect', 'warn'); return; }
@@ -22668,16 +22621,14 @@ async function submitPasswordChange() {
   showToast('✅ Password updated successfully', 'success');
 }
 function sendPinReset() {
-  _closeModal('modal-changepw');
-  showToast('📧 PIN reset email sent to your registered address','success');
+  showToast('PIN reset email is not connected. No email has been sent.', 'warn');
 }
 
-/* ── 2. DELETE ACCOUNT MODAL ── */
 function openDeleteAccountModal() {
   var body = '<div style="text-align:center;margin-bottom:16px;">'
     + '<div style="font-size:36px;margin-bottom:8px;">⚠️</div>'
     + '<div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:6px;">This cannot be undone</div>'
-    + '<p style="font-size:12px;color:var(--textdim);line-height:1.7;">Deleting your account will permanently erase all your transactions, assets, settings and goals. A 30-day grace period applies before final deletion.</p></div>'
+    + '<p style="font-size:12px;color:var(--textdim);line-height:1.7;">FinanceOS has no cloud account in this build. Confirming deletes local transactions, assets, settings, goals and the device password on this browser immediately.</p></div>'
     + '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:12px;padding:14px;">'
     + '<label style="font-size:11px;color:var(--red);font-weight:700;display:block;margin-bottom:6px;">TYPE "DELETE" TO CONFIRM</label>'
     + '<input type="text" id="deleteConfirmInput" class="form-input" placeholder="DELETE" oninput="var b=document.getElementById(\'deleteConfirmBtn\');b.disabled=this.value!==\'DELETE\';b.style.opacity=this.value===\'DELETE\'?\'1\':\'0.5\';b.style.cursor=this.value===\'DELETE\'?\'pointer\':\'not-allowed\';" style="border-color:rgba(248,113,113,.3);"/></div>';
@@ -22686,28 +22637,26 @@ function openDeleteAccountModal() {
   _modal('modal-deleteaccount', '🗑 Delete Account', body, footer, 'var(--red)');
 }
 function confirmAccountDeletion() {
+  const confirmation = document.getElementById('deleteConfirmInput')?.value;
+  if (confirmation !== 'DELETE') {
+    showToast('Type DELETE to confirm local data removal.', 'warn');
+    return;
+  }
   _closeModal('modal-deleteaccount');
-  showToast('⚠️ Account deletion scheduled — 30-day grace period begins now','info');
+  wipeAllData();
+  showToast('Local FinanceOS data and device password were deleted from this browser.', 'success');
 }
 
-/* ── 3. REVOKE DEVICE SESSION ── */
-function revokeDeviceSession(btn) {
-  var row = btn.parentElement;
-  while (row && !row.style.borderRadius) row = row.parentElement;
-  if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
-  btn.textContent = 'Revoked';
-  btn.style.color = 'var(--textdim)';
-  btn.style.borderColor = 'var(--border)';
-  showToast('🔒 Session revoked — device signed out','info');
+function revokeDeviceSession() {
+  showToast('Remote device sessions are not available. This profile exists only on this browser.', 'warn');
 }
 
-/* ── 4. HELP CENTER (opens AI Advisor with FAQ prompt) ── */
 function openHelpCenter() {
   navigateTo('advisor');
   setTimeout(function() {
     var inp = document.getElementById('chatInput') || document.querySelector('[id*="chat"][id*="nput"]');
     if (inp) { inp.value = 'Show me frequently asked questions and how to use FinanceOS.'; inp.dispatchEvent(new Event('input')); }
-    showToast('💬 AI Help Center ready — ask anything!','info');
+    showToast('AI Help Center is not connected in this build.','warn');
   }, 400);
 }
 
@@ -23250,7 +23199,7 @@ window.addEventListener('resize',   closeRowMenu);
     var prompt = 'You are a financial thinking coach. Review these 24 answers and give a focused verdict.\n\nDECISION: '+( a.name||'Unnamed')+'\n\nAPP DATA: Income '+c.income+' | Expenses '+c.expenses+' | Surplus '+c.surplus+' | Savings rate '+c.sr+' | Top spend: '+c.topspend+' | Debt: '+c.debt+'\n\nWHO: benefits='+( a.who_benefits||'—')+' | affected='+( a.who_affected||'—')+' | missing='+( a.who_missing||'—')+' | solved='+( a.who_solved||'—')+'\nWHAT: solve='+(a.what_solve||'—')+' | facts='+(a.what_facts||'—')+' | assuming='+(a.what_assuming||'—')+' | missing='+(a.what_missing||'—')+'\nWHEN: problem='+(a.when_problem||'—')+' | deadline='+(a.when_deadline||'—')+' | before='+(a.when_before||'—')+' | wrong='+(a.when_wrong||'—')+'\nWHERE: from='+(a.where_from||'—')+' | leads='+(a.where_leads||'—')+' | problems='+(a.where_problems||'—')+' | clarity='+(a.where_clarity||'—')+'\nWHY: matters='+(a.why_matters||'—')+' | believe='+(a.why_believe||'—')+' | different='+(a.why_different||'—')+' | unsolved='+(a.why_unsolved||'—')+'\nHOW: success='+(a.how_success||'—')+' | wrong='+(a.how_wrong||'—')+' | test='+(a.how_test||'—')+' | explain='+(a.how_explain||'—')+'\n\nRespond in EXACTLY this format:\nVERDICT: [PROCEED or PAUSE or STOP]\nSCORES: WHO:[1-10] WHAT:[1-10] WHEN:[1-10] WHERE:[1-10] WHY:[1-10] HOW:[1-10]\nSUMMARY: [2-3 sentences]\nBLIND SPOT: [1 sentence]\nNEXT ACTION: [1 concrete step]';
 
     try {
-      var res = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers: aiHeaders(),body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:prompt}]})});
+      var res = await fetch('/api/ai',{method:'POST',headers: aiHeaders(),body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:prompt}]})});
       var data = await res.json();
       var reply = (data.content&&data.content[0]&&data.content[0].text)||'';
       var vm = reply.match(/VERDICT:\s*(PROCEED|PAUSE|STOP)/i);
@@ -27952,4 +27901,4 @@ body.light-mode .page#page-settings > div[style*="position:sticky"] {
 </style>
 </body>
 </html>
-<script async data-explicit-opt-in="true" data-deployment-id="dpl_G9KxdprxuFZk2CbVJdjHHGAj7Fcn" src="https://vercel.live/_next-live/feedback/feedback.js"></script>
+<script async data-explicit-opt-in="true" data-deployment-id="dpl_G9KxdprxuFZk2CbVJdjHHGAj7Fcn" src="https://vercel.live/_next-live/feedback/feedback.js"></script><script async data-explicit-opt-in="true" data-deployment-id="dpl_Cj1dSA2RVz6G9RDDtFsxdzw8tTBK" src="https://vercel.live/_next-live/feedback/feedback.js"></script>
