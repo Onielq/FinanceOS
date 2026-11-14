@@ -10017,20 +10017,9 @@ function snapshotNetWorthIfNewMonth() {
   try {
     const history = getNetWorthHistory();
     const now = new Date();
-    const key = now.toISOString().substring(0,7); // YYYY-MM
+    const key = getFiscalPeriod(now).start; // fiscal-period start date
     if (history.length && history[history.length-1].month === key) return; // already snapped this month
-    const stats = (function() {
-      const totalAssets = assets.reduce((s,a)=>s+a.value,0);
-      let invExtra = 0;
-      try {
-        const invs = JSON.parse(localStorage.getItem('finOS_investments')||'[]');
-        const assetKeys = new Set(assets.map(a=>(a.name||'').toLowerCase().trim()));
-        invExtra = invs.filter(i=>!assetKeys.has((i.name||'').toLowerCase().trim())).reduce((s,i)=>s+(i.currentValue||i.capital||0),0);
-      } catch(e){}
-      let totalDebt = 0;
-      try { totalDebt = JSON.parse(localStorage.getItem('fos_debts')||'[]').reduce((s,d)=>s+(d.balance||0),0); } catch(e){}
-      return { netWorth: totalAssets + invExtra - totalDebt };
-    })();
+    const stats = { netWorth: getStats().netWorth };
     history.push({ month: key, netWorth: stats.netWorth, income: getMonthlyIncome(), expenses: getMonthlyExpenses() });
     if (history.length > 24) history.splice(0, history.length - 24); // keep 2 years
     localStorage.setItem('fos_nw_history', JSON.stringify(history));
@@ -10061,7 +10050,7 @@ function getFiscalPeriod(referenceDate) {
     periodEnd   = new Date(d.getFullYear(), d.getMonth(), startDay - 1);
   }
   // Format as YYYY-MM-DD strings for easy comparison
-  const fmt = dt => dt.toISOString().split('T')[0];
+  const fmt = dt => FinanceOSCore.localDateISO(dt);
   return { start: fmt(periodStart), end: fmt(periodEnd) };
 }
 
@@ -10539,26 +10528,69 @@ document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('cl
 // All features read from here. Never hardcode income/savings elsewhere.
 
 function getMonthlyIncome() {
-  // FIX 1: Always use CURRENT CALENDAR MONTH — never derive from latest transaction date.
-  // Using latest-transaction-month caused income/expense period mismatch (e.g. Feb income vs Mar expenses).
-  const curMonth = FinanceOSCore.localMonthISO(new Date());
-  // SETTINGS.income is always the base monthly salary.
-  // Any income transactions that are NOT the synthetic salary entry count as extras (bonuses, side hustle).
-  // We also skip recurring-generated salary entries (source:'recurring' with salary-like descriptions).
-  const SALARY_DESCS = ['Monthly Salary', 'Salary', 'salary'];
+  const period = getFiscalPeriod();
+  const salaryDescriptions = ['Monthly Salary', 'Salary', 'salary'];
   const extraIncome = transactions
-    .filter(t =>
-      t.type === 'income' &&
-      t.date.startsWith(curMonth) &&
-      !SALARY_DESCS.some(d => t.desc === d) &&
-      !(t.source === 'recurring' && t.cat === 'income' && t.amount >= SETTINGS.income * 0.8)
+    .filter(tx =>
+      tx.type === 'income' &&
+      tx.date >= period.start && tx.date <= period.end &&
+      !salaryDescriptions.some(description => tx.desc === description) &&
+      !(tx.source === 'recurring' && tx.cat === 'income' && tx.amount >= SETTINGS.income * 0.8)
     )
-    .reduce((s,t) => s + t.amount, 0);
-  return SETTINGS.income + extraIncome;
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  return (Number(SETTINGS.income) || 0) + extraIncome;
 }
 
 function getMonthlyExpenseSnapshot() {
-  return FinanceOSCore.getMonthlyExpenseSnapshot(transactions, SETTINGS.income, new Date());
+  const period = getFiscalPeriod();
+  const expenses = transactions.filter(tx =>
+    FinanceOSCore.isRealExpense(tx) &&
+    typeof tx.date === 'string' &&
+    tx.date >= period.start &&
+    tx.date <= period.end
+  );
+
+  if (expenses.length) {
+    return {
+      amount: Math.abs(expenses.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0)),
+      estimated: false,
+      basis: 'current-fiscal-period-transactions',
+      period: period.start + ' to ' + period.end,
+    };
+  }
+
+  const historicalPeriods = new Map();
+  transactions.filter(tx =>
+    FinanceOSCore.isRealExpense(tx) &&
+    typeof tx.date === 'string' &&
+    tx.date < period.start
+  ).forEach(tx => {
+    try {
+      const txDate = new Date(tx.date + 'T12:00:00');
+      const txPeriod = getFiscalPeriod(txDate);
+      if (txPeriod.end >= period.start) return;
+      const current = historicalPeriods.get(txPeriod.start) || { end: txPeriod.end, total: 0 };
+      current.total += Number(tx.amount) || 0;
+      historicalPeriods.set(txPeriod.start, current);
+    } catch(error) {}
+  });
+
+  const latest = [...historicalPeriods.entries()].sort((a, b) => b[0].localeCompare(a[0]))[0];
+  if (latest) {
+    return {
+      amount: Math.abs(latest[1].total),
+      estimated: true,
+      basis: 'most-recent-recorded-fiscal-period',
+      period: latest[0] + ' to ' + latest[1].end,
+    };
+  }
+
+  return {
+    amount: Math.round(Math.max(0, Number(SETTINGS.income) || 0) * 0.6),
+    estimated: true,
+    basis: 'income-based-estimate',
+    period: null,
+  };
 }
 
 function getMonthlyExpenses() {
@@ -10597,11 +10629,12 @@ function getStats() {
   const savingsRate = income>0 ? ((income-expenses)/income*100).toFixed(0) : 0;
   // Always use actual current calendar month — never derive from latest transaction date
   const now = new Date();
-  const curMonth  = FinanceOSCore.localMonthISO(now);
-  const prevDate  = new Date(now.getFullYear(), now.getMonth()-1, 1);
-  const prevMonth = FinanceOSCore.localMonthISO(prevDate);
-  const thisMo = transactions.filter(t=>t.date.startsWith(curMonth));
-  const lastMo = transactions.filter(t=>t.date.startsWith(prevMonth));
+  const currentPeriod = getFiscalPeriod(now);
+  const previousPeriodAnchor = new Date(currentPeriod.start + 'T12:00:00');
+  previousPeriodAnchor.setDate(previousPeriodAnchor.getDate() - 1);
+  const previousPeriod = getFiscalPeriod(previousPeriodAnchor);
+  const thisMo = transactions.filter(tx => tx.date >= currentPeriod.start && tx.date <= currentPeriod.end);
+  const lastMo = transactions.filter(tx => tx.date >= previousPeriod.start && tx.date <= previousPeriod.end);
   // FIX 5b: Exclude savings/investment transfers from "Spent This Month" display — they are not spending
   const isDisplayExpense = t => t.type==='expense' && !TRANSFER_CATS.includes(t.cat);
   const thisMoExp = Math.abs(thisMo.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
@@ -10612,13 +10645,16 @@ function getStats() {
   // harvest months, umuganda) because it had no baseline to compare against.
   const LOOKBACK_MONTHS = 12;
   const monthlyHistory = [];
-  for (let i = 1; i <= LOOKBACK_MONTHS; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = FinanceOSCore.localMonthISO(d);
-    const moTx = transactions.filter(t => t.date.startsWith(key));
-    const moExp = Math.abs(moTx.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
-    const moInc = moTx.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-    if (moExp > 0 || moInc > 0) monthlyHistory.push({ month: key, expenses: moExp, income: moInc });
+  let historicalAnchor = new Date(currentPeriod.start + 'T12:00:00');
+  historicalAnchor.setDate(historicalAnchor.getDate() - 1);
+  for (let i = 0; i < LOOKBACK_MONTHS; i++) {
+    const period = getFiscalPeriod(historicalAnchor);
+    const periodTx = transactions.filter(tx => tx.date >= period.start && tx.date <= period.end);
+    const periodExpenses = Math.abs(periodTx.filter(isDisplayExpense).reduce((sum, tx) => sum + tx.amount, 0));
+    const periodIncome = periodTx.filter(tx => tx.type === 'income').reduce((sum, tx) => sum + tx.amount, 0);
+    if (periodExpenses > 0 || periodIncome > 0) monthlyHistory.push({ month: period.start, expenses: periodExpenses, income: periodIncome });
+    historicalAnchor = new Date(period.start + 'T12:00:00');
+    historicalAnchor.setDate(historicalAnchor.getDate() - 1);
   }
   // Rolling 6-month average — more stable baseline than single prior month
   const rolling6 = monthlyHistory.slice(0, 6);
@@ -10649,7 +10685,7 @@ function getStats() {
   // catBreakdown: current month only so pct correctly reflects this month's spend share
   // FIX 8: Exclude savings/investment transfers from spending category breakdown
   const catMap = {};
-  transactions.filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat) && t.date.startsWith(curMonth))
+  transactions.filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat) && t.date >= currentPeriod.start && t.date <= currentPeriod.end)
     .forEach(t=>{ catMap[t.cat]=(catMap[t.cat]||0)+Math.abs(t.amount); });
   const catBreakdown = Object.entries(catMap).map(([cat,val])=>({
     cat, val, label:CATS[cat]?.label||cat, color:CATS[cat]?.color||'#666', icon:CATS[cat]?.icon||'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
@@ -15016,7 +15052,8 @@ function fpGetMonthlySaved() {
     transactions: transactions,
     subscriptions: subscriptions,
     debts: debtRows,
-    month: FinanceOSCore.localMonthISO(new Date()),
+    periodStart: getFiscalPeriod().start,
+    periodEnd: getFiscalPeriod().end,
   });
 }
 
