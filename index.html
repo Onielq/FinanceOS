@@ -9609,7 +9609,7 @@ const DB = {
       if (legacy) {
         const parsed = JSON.parse(legacy);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Legacy state is invalid');
-        this.save(parsed);
+        if (!this.save(parsed)) throw new Error('Could not safely persist the migrated legacy record. The original was preserved.');
         localStorage.removeItem('financeOS_v1');
         return parsed;
       }
@@ -9709,7 +9709,7 @@ const DB = {
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10);
+      const date = FinanceOSCore.localDateISO(new Date());
       a.href     = url;
       a.download = `FinanceOS_backup_${date}.json`;
       document.body.appendChild(a);
@@ -9982,6 +9982,11 @@ function applySavedFinanceState(saved) {
 
 // ─── DB WRITE — call after any mutation ─────────────────────────────────────
 function dbSave() {
+  // Preserve unreadable stored records. Do not write snapshots or new state until a validated import restores the vault.
+  if (DB._recoveryRequired) {
+    console.error('FinanceOS save skipped: restore from a valid backup before changing stored financial data.');
+    return false;
+  }
   // FIX P1: Auto-snapshot net worth once per month for history tracking
   snapshotNetWorthIfNewMonth();
   DB.save({
