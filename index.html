@@ -9979,7 +9979,7 @@ function buildMonthlyHistory() {
   const months = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = d.toISOString().substring(0,7);
+    const key = FinanceOSCore.localMonthISO(d);
     const label = d.toLocaleString('default',{month:'short'});
     const txMonth = transactions.filter(t => t.date.startsWith(key));
     const inc  = txMonth.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0)
@@ -9987,7 +9987,7 @@ function buildMonthlyHistory() {
     const exp  = Math.abs(txMonth
                    .filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat))
                    .reduce((s,t)=>s+t.amount,0));
-    months.push({ month: label, income: inc || (key <= now.toISOString().substring(0,7) ? SETTINGS.income : 0), expenses: exp });
+    months.push({ month: label, income: inc || (key <= FinanceOSCore.localMonthISO(now) ? SETTINGS.income : 0), expenses: exp });
   }
   return months;
 }
@@ -10171,80 +10171,84 @@ const FX = {
 //              nextDate, active, created_at }
 // ═══════════════════════════════════════════════════════════════════
 function applyRecurringTransactions() {
-  if (!recurringTx || !recurringTx.length) return;
-  const today = new Date().toISOString().split('T')[0];
+  if (!Array.isArray(recurringTx) || !recurringTx.length) return;
+  const today = FinanceOSCore.localDateISO(new Date());
   let changed = false;
+  let catchupLimitReached = false;
 
   recurringTx.forEach(rule => {
-    if (!rule.active) return;
-    if (!rule.nextDate || rule.nextDate > today) return;
+    if (!rule || !rule.active || !rule.nextDate || rule.nextDate > today) return;
+    let processed = 0;
 
-    // ── Lease-to-Own: split payment into equity + interest ────────────────
-    if (rule.leaseType === 'own' && rule.leaseAssetRef) {
-      const assetIdx = assets.findIndex(a => a.id === rule.leaseAssetRef);
-      const principal = rule.leasePrincipal || 0;
-      const interest  = rule.leaseInterest  || 0;
-
-      // Full payment logged as expense
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: `${rule.desc} (equity + interest)`,
-        date: rule.nextDate, cat: rule.cat, type: 'expense',
-        amount: -Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id,
-        leaseType: 'own',
-        leasePrincipal: principal, leaseInterest: interest,
-      });
-
-      // Update asset equity counter
-      if (assetIdx >= 0) {
-        const a = assets[assetIdx];
-        a.leasePaidMonths  = (a.leasePaidMonths  || 0) + 1;
-        a.leaseEquityBuilt = (a.leaseEquityBuilt || 0) + principal;
-        // If fully paid, mark as owned
-        if (a.leaseMonths && a.leasePaidMonths >= a.leaseMonths) {
-          a.acquisition = 'purchased';
-          a.leaseFullyOwned = true;
-          rule.active = false; // Stop recurring
-          showToast(`🎉 ${a.name} is now fully owned!`, 'success');
-        }
+    while (rule.active && rule.nextDate && rule.nextDate <= today && processed < 1200) {
+      const dueDate = rule.nextDate;
+      try { FinanceOSCore.parseISODate(dueDate); }
+      catch(error) {
+        console.error('Invalid recurring date; rule left unchanged:', rule.id, dueDate);
+        break;
       }
 
-    // ── Lease-to-Rent: pure expense ───────────────────────────────────────
-    } else if (rule.leaseType === 'rent') {
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: rule.desc, date: rule.nextDate, cat: rule.cat, type: 'expense',
-        amount: -Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id, leaseType: 'rent',
-      });
+      const alreadyCreated = transactions.some(tx =>
+        tx && tx.source === 'recurring' &&
+        String(tx.recurringId) === String(rule.id) &&
+        tx.date === dueDate
+      );
 
-    // ── Standard recurring (income or expense) ────────────────────────────
-    } else {
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: rule.desc, date: rule.nextDate, cat: rule.cat, type: rule.type,
-        amount: rule.type === 'expense' ? -Math.abs(rule.amount) : Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id,
-      });
-    }
+      if (!alreadyCreated) {
+        const newId = () => (crypto.randomUUID
+          ? crypto.randomUUID()
+          : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+        const record = {
+          id: newId(),
+          desc: rule.desc || 'Recurring transaction',
+          date: dueDate,
+          cat: rule.cat || 'other',
+          type: rule.type === 'income' ? 'income' : 'expense',
+          amount: rule.type === 'income' ? Math.abs(Number(rule.amount) || 0) : -Math.abs(Number(rule.amount) || 0),
+          created_at: new Date().toISOString(),
+          source: 'recurring',
+          recurringId: rule.id,
+        };
 
-    // Advance nextDate
-    const next = new Date(rule.nextDate);
-    if (rule.frequency === 'weekly')         next.setDate(next.getDate() + 7);
-    else if (rule.frequency === 'biweekly')  next.setDate(next.getDate() + 14);
-    else {
-      next.setMonth(next.getMonth() + 1);
-      if (rule.dayOfMonth) next.setDate(Math.min(rule.dayOfMonth, 28));
+        if (rule.leaseType === 'own' && rule.leaseAssetRef) {
+          record.desc = (rule.desc || 'Lease payment') + ' (equity + interest)';
+          record.leaseType = 'own';
+          record.leasePrincipal = Number(rule.leasePrincipal) || 0;
+          record.leaseInterest = Number(rule.leaseInterest) || 0;
+          const asset = assets.find(item => String(item.id) === String(rule.leaseAssetRef));
+          if (asset) {
+            asset.leasePaidMonths = (asset.leasePaidMonths || 0) + 1;
+            asset.leaseEquityBuilt = (asset.leaseEquityBuilt || 0) + record.leasePrincipal;
+            if (asset.leaseMonths && asset.leasePaidMonths >= asset.leaseMonths) {
+              asset.acquisition = 'purchased';
+              asset.leaseFullyOwned = true;
+              rule.active = false;
+              showToast(asset.name + ' is now fully owned!', 'success');
+            }
+          }
+        } else if (rule.leaseType === 'rent') {
+          record.leaseType = 'rent';
+        }
+        transactions.push(record);
+      }
+
+      processed += 1;
+      if (!rule.active) break;
+      const frequency = rule.frequency || 'monthly';
+      const anchorDay = rule.dayOfMonth || Number(dueDate.slice(-2));
+      try {
+        rule.nextDate = FinanceOSCore.addRecurringDate(dueDate, frequency, anchorDay);
+      } catch(error) {
+        console.error('Could not advance recurring rule:', rule.id, error);
+        break;
+      }
+      changed = true;
     }
-    rule.nextDate = next.toISOString().split('T')[0];
-    changed = true;
+    if (processed >= 1200 && rule.nextDate && rule.nextDate <= today) catchupLimitReached = true;
   });
 
   if (changed) dbSave();
+  if (catchupLimitReached) showToast('A recurring rule has more than 1,200 missed cycles. Review it before continuing.', 'warn');
 }
 
 // ── Lease Renewal Alerts ──────────────────────────────────────────────────────
@@ -10590,7 +10594,7 @@ document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('cl
 function getMonthlyIncome() {
   // FIX 1: Always use CURRENT CALENDAR MONTH — never derive from latest transaction date.
   // Using latest-transaction-month caused income/expense period mismatch (e.g. Feb income vs Mar expenses).
-  const curMonth = new Date().toISOString().substring(0,7);
+  const curMonth = FinanceOSCore.localMonthISO(new Date());
   // SETTINGS.income is always the base monthly salary.
   // Any income transactions that are NOT the synthetic salary entry count as extras (bonuses, side hustle).
   // We also skip recurring-generated salary entries (source:'recurring' with salary-like descriptions).
@@ -10606,25 +10610,12 @@ function getMonthlyIncome() {
   return SETTINGS.income + extraIncome;
 }
 
-function getMonthlyExpenses() {
-  // FIX 2: Exclude 'savings' and 'investment' category transactions — these are money TRANSFERS,
-  // not actual spending. Counting them as expenses inflates costs and deflates the surplus/freedom age.
-  const TRANSFER_CATS = ['savings', 'investment', 'sacco', 'umworo', 'momo'];
-  const isRealExpense = t => t.type === 'expense' && !TRANSFER_CATS.includes(t.cat);
+function getMonthlyExpenseSnapshot() {
+  return FinanceOSCore.getMonthlyExpenseSnapshot(transactions, SETTINGS.income, new Date());
+}
 
-  // Always use current calendar month first
-  const curMonth = new Date().toISOString().substring(0,7);
-  const curExp = Math.abs(
-    transactions.filter(t => isRealExpense(t) && t.date.startsWith(curMonth))
-      .reduce((s,t) => s + t.amount, 0)
-  );
-  if (curExp > 0) return curExp;
-  // No expenses logged yet this month — fall back to most recent month with data
-  const sorted = [...transactions].filter(isRealExpense).sort((a,b)=>b.date.localeCompare(a.date));
-  if (!sorted.length) return Math.round(SETTINGS.income * 0.6);
-  const latestMonth = sorted[0].date.substring(0,7);
-  return Math.abs(sorted.filter(t=>t.date.startsWith(latestMonth)).reduce((s,t)=>s+t.amount,0))
-    || Math.round(SETTINGS.income * 0.6);
+function getMonthlyExpenses() {
+  return getMonthlyExpenseSnapshot().amount;
 }
 
 // FIX: Emergency fund detection via asset type, not keyword.
@@ -10638,34 +10629,30 @@ function getEmergencyFundAsset() {
 
 function getStats() {
   const income = getMonthlyIncome();
-  const expenses = getMonthlyExpenses();
-  const totalAssets = assets.reduce((s,a)=>s+a.value,0);
-  // FIX 5: Same deduplication guard as getFpPortfolio — exclude Investment Portal entries
-  // whose name already exists in the Assets array, preventing double-counting in net worth.
-  const TRANSFER_CATS = ['savings','investment','sacco','umworo','momo'];
-  const invPortfolioExtra = (function() {
+  const expenseSnapshot = getMonthlyExpenseSnapshot();
+  const expenses = expenseSnapshot.amount;
+  const totalAssets = assets.reduce((sum, asset) => sum + Math.max(0, Number(asset.value) || 0), 0);
+  const investmentRows = (function() {
     try {
-      const invs = JSON.parse(localStorage.getItem('finOS_investments')||'[]');
-      const assetKeys = new Set(assets.map(a => (a.name||'').toLowerCase().trim()));
-      return invs
-        .filter(inv => !assetKeys.has((inv.name||'').toLowerCase().trim()))
-        .reduce((s,inv) => s + (inv.currentValue || inv.capital || 0), 0);
-    } catch(e) { return 0; }
+      const rows = JSON.parse(localStorage.getItem('finOS_investments') || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch(e) { return []; }
   }());
-  // Subtract tracked debts for true net worth
-  const totalDebt = (function() {
+  const debtRows = (function() {
     try {
-      const ds = JSON.parse(localStorage.getItem('fos_debts')||'[]');
-      return ds.reduce((s,d) => s + (d.balance || 0), 0);
-    } catch(e) { return 0; }
+      const rows = JSON.parse(localStorage.getItem('fos_debts') || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch(e) { return []; }
   }());
-  const netWorth = totalAssets + invPortfolioExtra - totalDebt;
+  const totalDebt = debtRows.reduce((sum, debt) => sum + Math.max(0, Number(debt.balance) || 0), 0);
+  const netWorth = FinanceOSCore.calculateNetWorth(assets, investmentRows, debtRows);
+  const TRANSFER_CATS = FinanceOSCore.TRANSFER_CATEGORIES;
   const savingsRate = income>0 ? ((income-expenses)/income*100).toFixed(0) : 0;
   // Always use actual current calendar month — never derive from latest transaction date
   const now = new Date();
-  const curMonth  = now.toISOString().substring(0,7);
+  const curMonth  = FinanceOSCore.localMonthISO(now);
   const prevDate  = new Date(now.getFullYear(), now.getMonth()-1, 1);
-  const prevMonth = prevDate.toISOString().substring(0,7);
+  const prevMonth = FinanceOSCore.localMonthISO(prevDate);
   const thisMo = transactions.filter(t=>t.date.startsWith(curMonth));
   const lastMo = transactions.filter(t=>t.date.startsWith(prevMonth));
   // FIX 5b: Exclude savings/investment transfers from "Spent This Month" display — they are not spending
@@ -10680,7 +10667,7 @@ function getStats() {
   const monthlyHistory = [];
   for (let i = 1; i <= LOOKBACK_MONTHS; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = d.toISOString().substring(0, 7);
+    const key = FinanceOSCore.localMonthISO(d);
     const moTx = transactions.filter(t => t.date.startsWith(key));
     const moExp = Math.abs(moTx.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
     const moInc = moTx.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
@@ -10721,7 +10708,7 @@ function getStats() {
     cat, val, label:CATS[cat]?.label||cat, color:CATS[cat]?.color||'#666', icon:CATS[cat]?.icon||'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
     pct:thisMoExp>0?(val/thisMoExp*100).toFixed(0):0
   })).sort((a,b)=>b.val-a.val);
-  return { income, expenses, netWorth, savingsRate, thisMoExp, lastMoExp, expTrend, expTrendVsLastMonth, catBreakdown, totalAssets, monthlyHistory, rollingAvgExp, seasonalContext };
+  return { income, expenses, expensesEstimated: expenseSnapshot.estimated, expenseEstimateBasis: expenseSnapshot.basis, netWorth, savingsRate, thisMoExp, lastMoExp, expTrend, expTrendVsLastMonth, catBreakdown, totalAssets, totalDebt, monthlyHistory, rollingAvgExp, seasonalContext };
 }
 
 // The one function every feature uses to calculate freedom age
@@ -10941,20 +10928,13 @@ function initSimpleMode() {
 
 function getNetWorth() {
   try {
-    // Sum assets — SMS-verified cash assets already reflect ground-truth balance
-    const assetTotal = (typeof assets !== 'undefined' ? assets : [])
-      .reduce((s, a) => s + (parseFloat(a.value) || 0), 0);
-
-    // If no SMS balance has been confirmed, add monthly cash surplus as estimate
-    const hasSmsBalance = SETTINGS.smsConfirmedBalance && SETTINGS.smsConfirmedBalance > 0;
-    if (!hasSmsBalance) {
-      const income   = typeof getMonthlyIncome   === 'function' ? getMonthlyIncome()   : 0;
-      const expenses = typeof getMonthlyExpenses  === 'function' ? getMonthlyExpenses() : 0;
-      return assetTotal + Math.max(0, income - expenses);
-    }
-    // SMS balance is ground truth — assets already include the verified cash asset,
-    // so we just return the asset total (which already incorporates the real balance).
-    return assetTotal;
+    const investmentRows = JSON.parse(localStorage.getItem('finOS_investments') || '[]');
+    const debtRows = JSON.parse(localStorage.getItem('fos_debts') || '[]');
+    return FinanceOSCore.calculateNetWorth(
+      typeof assets !== 'undefined' ? assets : [],
+      Array.isArray(investmentRows) ? investmentRows : [],
+      Array.isArray(debtRows) ? debtRows : []
+    );
   } catch(e) { return 0; }
 }
 
@@ -15071,34 +15051,23 @@ function fpProject(months, route, savings, monthly) {
 }
 
 function fpGetMonthlySaved() {
-  const inc = getMonthlyIncome();
-  const exp = getMonthlyExpenses();
-  // FIX 4: Subscriptions and debt payments live in separate modules and are NOT automatically
-  // added to the transactions array. If we ignore them, monthly savings is OVERSTATED,
-  // making freedom age appear unrealistically close.
-  const subCost = (function() {
-    try {
-      const subs = JSON.parse(localStorage.getItem('fos_subs')||'[]');
-      return subs.filter(s=>s.status==='active').reduce((sum,s)=>sum+subMonthlyAmount(s),0);
-    } catch(e){ return 0; }
-  }());
-  const debtPayments = (function() {
-    try {
-      const ds = JSON.parse(localStorage.getItem('fos_debts')||'[]');
-      return ds.reduce((s,d)=>s+(d.monthly||0),0);
-    } catch(e){ return 0; }
-  }());
-  // Only add sub/debt costs that aren't already tracked as transactions
-  // (if user has them as recurring transactions, avoid double-counting)
-  const alreadyInTx = exp; // transactions already capture manually-logged subs/debts
-  // Conservative: only add external modules if they exceed what's in transactions
-  // We add the NET delta to ensure real obligations aren't missed
-  const txBasedSubs = transactions
-    .filter(t=>t.type==='expense' && t.cat==='other' && t.date.startsWith(new Date().toISOString().substring(0,7)))
-    .reduce((s,t)=>s+Math.abs(t.amount),0);
-  const uncapturedSubs  = Math.max(0, subCost   - 0); // Always include: subs rarely logged as transactions
-  const uncapturedDebt  = Math.max(0, debtPayments - 0); // Always include: debt payments rarely logged as transactions
-  return Math.max(0, inc - exp - uncapturedSubs - uncapturedDebt);
+  let subscriptions = [], debtRows = [];
+  try {
+    const rows = JSON.parse(localStorage.getItem('fos_subs') || '[]');
+    if (Array.isArray(rows)) subscriptions = rows;
+  } catch(e) {}
+  try {
+    const rows = JSON.parse(localStorage.getItem('fos_debts') || '[]');
+    if (Array.isArray(rows)) debtRows = rows;
+  } catch(e) {}
+  return FinanceOSCore.calculateMonthlySavings({
+    income: getMonthlyIncome(),
+    expenses: getMonthlyExpenses(),
+    transactions: transactions,
+    subscriptions: subscriptions,
+    debts: debtRows,
+    month: FinanceOSCore.localMonthISO(new Date()),
+  });
 }
 
 function fpRenderRoutes() {
@@ -21538,6 +21507,7 @@ function getBizFinancialContext() {
   const efAsset = getEmergencyFundAsset();
   const efVal = efAsset?.value || 0;
   const efTarget = s.expenses * 3;
+  const businessMetrics = FinanceOSCore.calculateBusinessMetrics({ assets, expenses: s.expenses, monthlyDebtPayments, income: s.income, emergencyFundTarget: efTarget });
   const efMonths = efTarget > 0 ? (efVal / (efTarget / 3)).toFixed(1) : '0';
 
   // Subscriptions
@@ -21572,7 +21542,10 @@ function getBizFinancialContext() {
     totalDebt,
     monthlyDebtPayments,
     debtCount: debtsArr.length,
-    debtToIncome: s.income > 0 ? Math.round(totalDebt / (s.income * 12) * 100) : 0,
+    debtToIncome: Math.round(businessMetrics.debtToIncome),
+    liquidSavings: businessMetrics.liquidSavings,
+    availableLiquidCapital: businessMetrics.availableLiquidCapital,
+    runwayMonths: businessMetrics.runwayMonths,
 
     // Emergency fund
     efVal, efTarget, efMonths: parseFloat(efMonths),
@@ -21604,7 +21577,7 @@ function calcBizReadiness(ctx, bizStartup) {
   const canFundScore = (() => {
     // FIX 6: ctx.netWorth already has debt SUBTRACTED. Do NOT subtract totalDebt again.
     // Old code: ctx.netWorth - ctx.totalDebt - ctx.efTarget (debt counted twice = wrong score)
-    const available = Math.max(0, ctx.netWorth - ctx.efTarget);
+    const available = Math.max(0, ctx.availableLiquidCapital || 0);
     if (startup === 0) return 80;
     const ratio = available / startup;
     if (ratio >= 2)   return 100;
@@ -21636,11 +21609,12 @@ function calcBizReadiness(ctx, bizStartup) {
 
   // 4. Monthly Runway (15%) — if biz fails, how long can they survive on savings?
   const runwayScore = (() => {
-    const months = ctx.expenses > 0 ? ctx.monthlySaved / ctx.expenses : 0;
-    if (months >= 0.3) return 100;
-    if (months >= 0.15) return 70;
-    if (months >= 0.05) return 40;
-    return 15;
+    const months = ctx.runwayMonths || 0;
+    if (months >= 6) return 100;
+    if (months >= 3) return 75;
+    if (months >= 1) return 50;
+    if (months > 0) return 20;
+    return 5;
   })();
 
   // 5. Savings Rate (10%) — discipline signal
