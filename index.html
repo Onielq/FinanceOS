@@ -27,7 +27,7 @@
 <!-- ── PWA Manifest (inline data URI for single-file PWA) ── -->
 <link id="pwa-manifest" rel="manifest"/>
 
-<title>FinanceOS v46 — Your Money · Your Business</title>
+<title>FinanceOS v51 — Your Money · Your Business</title>
 
 <script>
 // ── Inject PWA Manifest inline so single-file works as installable PWA ──
@@ -5582,9 +5582,9 @@ body.three-quarter-mode #unlockCard { display: flex; }
       <div class="card" id="spentCard">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div>
-            <div class="card-label">Spent This Month</div>
+            <div class="card-label">Spent This Period</div>
             <div class="card-val hidden-val" id="spentVal">—</div>
-            <div class="card-sub" id="expTrendText">vs last month</div>
+            <div class="card-sub" id="expTrendText">vs prior period</div>
           </div>
           <div class="card-icon" style="background:rgba(231,76,60,.15);color:var(--red);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></div>
         </div>
@@ -5601,7 +5601,7 @@ body.three-quarter-mode #unlockCard { display: flex; }
           <div>
             <div class="card-label">Monthly Surplus</div>
             <div class="card-val" id="surplusVal">—</div>
-            <div class="card-sub">Money left after spending</div>
+            <div class="card-sub" id="surplusSub">Money left after spending</div>
           </div>
           <div class="card-icon" style="background:rgba(96,165,250,.15);color:var(--blue);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
         </div>
@@ -10675,7 +10675,7 @@ function getStats() {
     11: { label: 'End-of-year social spending', categories: ['entertainment','shopping'] },
     12: { label: 'Year-end celebrations', categories: ['entertainment','shopping','family'] },
   };
-  const currentMonthNum = now.getMonth() + 1; // 1-indexed
+  const currentMonthNum = new Date(currentPeriod.start + 'T12:00:00').getMonth() + 1; // fiscal-period start month
   const seasonalContext = RWANDA_HIGH_SPEND_MONTHS[currentMonthNum] || null;
 
   // catBreakdown: current month only so pct correctly reflects this month's spend share
@@ -11206,7 +11206,7 @@ function renderDashboard() {
   const income  = getMonthlyIncome();
   const target  = SETTINGS.savingsTarget;
   const budget  = Math.round(income * (1 - target / 100));
-  const surplus = Math.max(0, income - s.thisMoExp);
+  const surplus = income - s.expenses;
   const left    = budget - s.thisMoExp;
   const sr      = parseInt(s.savingsRate);
   const now     = new Date();
@@ -11231,7 +11231,7 @@ function renderDashboard() {
   // Focus bar
   const _focusEl = document.getElementById('focusText');
   if (_focusEl) _focusEl.innerHTML =
-    'Spent <strong style="color:var(--gold)">' + fmt(s.thisMoExp,hideNums) + '</strong> this month. ' +
+    'Spent <strong style="color:var(--gold)">' + fmt(s.thisMoExp,hideNums) + '</strong> in this pay period. ' +
     'Budget left: <strong style="color:' + (left>=0?'var(--green)':'var(--red)') + ';">' + fmt(Math.abs(left),hideNums) + '</strong>. ' +
     (left >= 0 ? 'Stay disciplined.' : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Over budget — cut spending now.');
 
@@ -11244,6 +11244,10 @@ function renderDashboard() {
   if (inEl) inEl.textContent = fmt(s.income, hideNums);
   if (spEl) spEl.textContent = fmt(s.thisMoExp, hideNums);
   if (suEl) { suEl.textContent = fmt(surplus, hideNums); suEl.style.color = surplus > 0 ? 'var(--green)' : 'var(--red)'; }
+  const surplusSubEl = document.getElementById('surplusSub');
+  if (surplusSubEl) surplusSubEl.textContent = s.expensesEstimated
+    ? 'Estimated from ' + (s.expenseEstimateBasis === 'income-based-estimate' ? '60% of income' : 'the last recorded pay period')
+    : 'Based on recorded expenses in this pay period';
   const stEl = document.getElementById('surplusTrend');
   if (stEl) { stEl.textContent = sr + '% savings rate' + (s.expensesEstimated ? ' · estimated expenses' : ''); stEl.className = 'trend ' + (sr >= target ? 'up' : 'down'); stEl.title = s.expensesEstimated ? 'Expense basis: ' + s.expenseEstimateBasis + (getMonthlyExpenseSnapshot().period ? ' (' + getMonthlyExpenseSnapshot().period + ')' : '') : 'Based on recorded expenses in the current fiscal period'; }
   // NEXUS: Show SMS-verified balance badge if ground truth is active
@@ -11272,7 +11276,7 @@ function renderDashboard() {
       const curr = s.netWorth;
       const diff = curr - prev;
       const pct  = prev !== 0 ? ((diff / Math.abs(prev)) * 100).toFixed(1) : 0;
-      nwTrendEl.textContent = (diff >= 0 ? '▲ +' : '▼ ') + fmt(diff, false) + ' (' + pct + '%) vs last month';
+      nwTrendEl.textContent = (diff >= 0 ? '▲ +' : '▼ ') + fmt(diff, false) + ' (' + pct + '%) vs prior period';
       nwTrendEl.className   = 'trend ' + (diff >= 0 ? 'up' : 'down');
     } else {
       nwTrendEl.textContent = '→ Tracking — more data next month';
@@ -11290,7 +11294,7 @@ function renderDashboard() {
   // Expense trend
   const trendEl = document.getElementById('expTrend');
   const trend   = parseInt(s.expTrend);
-  if (trendEl) { trendEl.textContent = (trend >= 0 ? '↑ ' : '↓ ') + Math.abs(trend) + '% vs last month'; trendEl.className = 'trend ' + (trend > 0 ? 'down' : 'up'); }
+  if (trendEl) { trendEl.textContent = (trend >= 0 ? '↑ ' : '↓ ') + Math.abs(trend) + '% vs prior period'; trendEl.className = 'trend ' + (trend > 0 ? 'down' : 'up'); }
 
   // ROW 2 KPI cards — Savings rate
   const srvEl = document.getElementById('savingsRateVal');
@@ -11311,7 +11315,7 @@ function renderDashboard() {
   const dltEl = document.getElementById('daysLeftTrend');
   if (dlvEl) dlvEl.textContent = daysLeft + ' days';
   if (dbsEl) dbsEl.textContent = fmt(dailyBudget, hideNums) + '/day available';
-  if (dltEl) { dltEl.innerHTML = daysLeft <= 5 ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Month ending soon' : '→ On track'; dltEl.className = 'trend ' + (daysLeft <= 5 ? 'warn' : 'neutral'); }
+  if (dltEl) { dltEl.innerHTML = daysLeft <= 5 ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Pay period ending soon' : '→ On track'; dltEl.className = 'trend ' + (daysLeft <= 5 ? 'warn' : 'neutral'); }
 
   // Budget remaining
   const blvEl = document.getElementById('budgetLeftVal');
