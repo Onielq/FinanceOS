@@ -72,7 +72,8 @@ test('backup validator rejects malformed financial arrays before import', () => 
   assert.throws(() => Core.validateBackup({ transactions: {} }), /transactions.*array/i);
   assert.throws(() => Core.validateBackup({ transactions: [{ type: 'expense', amount: 'NaN', date: '2026-11-01' }] }), /invalid amount/i);
   assert.throws(() => Core.validateBackup({ assets: [{ value: -10 }] }), /invalid value/i);
-  assert.doesNotThrow(() => Core.validateBackup({ version: 'v50', transactions: [], assets: [], settings: {} }));
+  assert.throws(() => Core.validateBackup({ transactions: [], assets: [], settings: {} }), /recurringTx.*required/i);
+  assert.doesNotThrow(() => Core.validateBackup({ version: 'v51', transactions: [], assets: [], recurringTx: [], settings: {} }));
 });
 test('monthly savings respects a configured non-calendar fiscal period', () => {
   const savings = Core.calculateMonthlySavings({
@@ -89,4 +90,19 @@ test('monthly savings respects a configured non-calendar fiscal period', () => {
     debts: [{ id: 'd1', name: 'Car loan', monthly: 100000 }],
   });
   assert.equal(savings, 400000);
+});
+
+test('monthly savings subtracts only the unpaid part of a partially recorded obligation', () => {
+  const savings = Core.calculateMonthlySavings({
+    month: '2026-11',
+    income: 1000000,
+    expenses: 600000,
+    transactions: [
+      { date: '2026-11-02', type: 'expense', cat: 'other', amount: -20000, desc: 'Netflix subscription' },
+      { date: '2026-11-04', type: 'expense', cat: 'debt', amount: -100000, desc: 'Car loan payment' },
+    ],
+    subscriptions: [{ id: 's1', name: 'Netflix', amount: 50000, status: 'active', cycle: 'monthly' }],
+    debts: [{ id: 'd1', name: 'Car loan', monthly: 100000 }],
+  });
+  assert.equal(savings, 370000);
 });
