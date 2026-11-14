@@ -1,5 +1,5 @@
-const CACHE_NAME = 'financeos-v50';
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
+const CACHE_NAME = 'financeos-v51';
+const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/finance-core.js'];
 
 self.addEventListener('install', event => {
   event.waitUntil(
