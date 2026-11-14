@@ -74,3 +74,19 @@ test('backup validator rejects malformed financial arrays before import', () => 
   assert.throws(() => Core.validateBackup({ assets: [{ value: -10 }] }), /invalid value/i);
   assert.doesNotThrow(() => Core.validateBackup({ version: 'v50', transactions: [], assets: [], settings: {} }));
 });
+test('monthly savings respects a configured non-calendar fiscal period', () => {
+  const savings = Core.calculateMonthlySavings({
+    periodStart: '2026-11-25',
+    periodEnd: '2026-12-24',
+    income: 1000000,
+    expenses: 600000,
+    transactions: [
+      { date: '2026-11-27', type: 'expense', cat: 'other', amount: -50000, desc: 'Netflix subscription' },
+      { date: '2026-11-29', type: 'expense', cat: 'debt', amount: -100000, desc: 'Car loan payment' },
+      { date: '2026-11-10', type: 'expense', cat: 'other', amount: -50000, desc: 'Old month subscription' },
+    ],
+    subscriptions: [{ id: 's1', name: 'Netflix', amount: 50000, status: 'active', cycle: 'monthly' }],
+    debts: [{ id: 'd1', name: 'Car loan', monthly: 100000 }],
+  });
+  assert.equal(savings, 400000);
+});
