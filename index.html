@@ -10635,8 +10635,8 @@ function getStats() {
   }());
   const totalDebt = debtRows.reduce((sum, debt) => sum + Math.max(0, Number(debt.balance) || 0), 0);
   const netWorth = FinanceOSCore.calculateNetWorth(assets, investmentRows, debtRows);
-  const TRANSFER_CATS = FinanceOSCore.TRANSFER_CATEGORIES;
-  const savingsRate = income>0 ? ((income-expenses)/income*100).toFixed(0) : 0;
+  const monthlySurplus = typeof fpGetMonthlySaved === 'function' ? fpGetMonthlySaved() : income - expenses;
+  const savingsRate = income > 0 ? (monthlySurplus / income * 100).toFixed(0) : 0;
   // Always use actual current calendar month — never derive from latest transaction date
   const now = new Date();
   const currentPeriod = getFiscalPeriod(now);
@@ -10646,7 +10646,7 @@ function getStats() {
   const thisMo = transactions.filter(tx => tx.date >= currentPeriod.start && tx.date <= currentPeriod.end);
   const lastMo = transactions.filter(tx => tx.date >= previousPeriod.start && tx.date <= previousPeriod.end);
   // FIX 5b: Exclude savings/investment transfers from "Spent This Month" display — they are not spending
-  const isDisplayExpense = t => t.type==='expense' && !TRANSFER_CATS.includes(t.cat);
+  const isDisplayExpense = t => FinanceOSCore.isRealExpense(t);
   const thisMoExp = Math.abs(thisMo.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
   const lastMoExp = Math.abs(lastMo.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
 
@@ -10695,13 +10695,13 @@ function getStats() {
   // catBreakdown: current month only so pct correctly reflects this month's spend share
   // FIX 8: Exclude savings/investment transfers from spending category breakdown
   const catMap = {};
-  transactions.filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat) && t.date >= currentPeriod.start && t.date <= currentPeriod.end)
+  transactions.filter(t=>isDisplayExpense(t) && typeof t.date === 'string' && t.date >= currentPeriod.start && t.date <= currentPeriod.end)
     .forEach(t=>{ catMap[t.cat]=(catMap[t.cat]||0)+Math.abs(t.amount); });
   const catBreakdown = Object.entries(catMap).map(([cat,val])=>({
     cat, val, label:CATS[cat]?.label||cat, color:CATS[cat]?.color||'#666', icon:CATS[cat]?.icon||'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
     pct:thisMoExp>0?(val/thisMoExp*100).toFixed(0):0
   })).sort((a,b)=>b.val-a.val);
-  return { income, expenses, expensesEstimated: expenseSnapshot.estimated, expenseEstimateBasis: expenseSnapshot.basis, netWorth, savingsRate, thisMoExp, lastMoExp, expTrend, expTrendVsLastMonth, catBreakdown, totalAssets, totalDebt, monthlyHistory, rollingAvgExp, seasonalContext };
+  return { income, expenses, monthlySurplus, expensesEstimated: expenseSnapshot.estimated, expenseEstimateBasis: expenseSnapshot.basis, netWorth, savingsRate, thisMoExp, lastMoExp, expTrend, expTrendVsLastMonth, catBreakdown, totalAssets, totalDebt, monthlyHistory, rollingAvgExp, seasonalContext };
 }
 
 // The one function every feature uses to calculate freedom age
@@ -11220,7 +11220,7 @@ function renderDashboard() {
   const income  = getMonthlyIncome();
   const target  = SETTINGS.savingsTarget;
   const budget  = Math.round(income * (1 - target / 100));
-  const surplus = income - s.expenses;
+  const surplus = s.monthlySurplus;
   const left    = budget - s.thisMoExp;
   const sr      = parseInt(s.savingsRate);
   const now     = new Date();
@@ -11260,8 +11260,8 @@ function renderDashboard() {
   if (suEl) { suEl.textContent = fmt(surplus, hideNums); suEl.style.color = surplus > 0 ? 'var(--green)' : 'var(--red)'; }
   const surplusSubEl = document.getElementById('surplusSub');
   if (surplusSubEl) surplusSubEl.textContent = s.expensesEstimated
-    ? 'Estimated from ' + (s.expenseEstimateBasis === 'income-based-estimate' ? '60% of income' : 'the last recorded pay period')
-    : 'Based on recorded expenses in this pay period';
+    ? 'Estimated expense basis; unrecorded bills are deducted'
+    : 'Recorded expenses less unrecorded bills';
   const stEl = document.getElementById('surplusTrend');
   if (stEl) { stEl.textContent = sr + '% savings rate' + (s.expensesEstimated ? ' · estimated expenses' : ''); stEl.className = 'trend ' + (sr >= target ? 'up' : 'down'); stEl.title = s.expensesEstimated ? 'Expense basis: ' + s.expenseEstimateBasis + (getMonthlyExpenseSnapshot().period ? ' (' + getMonthlyExpenseSnapshot().period + ')' : '') : 'Based on recorded expenses in the current fiscal period'; }
   // NEXUS: Show SMS-verified balance badge if ground truth is active
