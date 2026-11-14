@@ -9885,7 +9885,7 @@ const SETTINGS_DEFAULTS = {
   showFx:            false,
   fxDisplayCurrency: '',
   // AI
-  aiKey:         'built-in', // AI is built-in — no user key required
+  aiKey:         'built-in', // AI service not connected — server setup required
   aiStyle:       'coach',
   aiContext:     '',
   // Faith & Finance
@@ -9906,12 +9906,7 @@ const SETTINGS = Object.assign({}, SETTINGS_DEFAULTS);
 
 // ── AI API helper — always use this for fetch headers ──
 function aiHeaders() {
-  // AI is built-in — no user API key needed.
-  // The 'built-in' sentinel in SETTINGS.aiKey signals we use the platform proxy.
-  const key = (SETTINGS.aiKey||'').trim();
-  const h = { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
-  if (key && key !== 'built-in') h['x-api-key'] = key;
-  return h;
+  throw new Error('AI is not connected. FinanceOS needs a protected server-side AI service before this feature can run.');
 }
 function toggleAiKeyVis() {
   const el = document.getElementById('settingsAiKey');
@@ -9919,14 +9914,8 @@ function toggleAiKeyVis() {
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 function aiKeyMissing() {
-  // AI is built-in — no key needed. Legacy guard kept for safety but always returns false.
-  const key = (SETTINGS.aiKey||'').trim();
-  if (!key || key === 'built-in') return false; // AI is ready, no blocking alert
-  if (false) { // unreachable — original alert preserved for reference only
-    alert('\u26a0\ufe0f  No API key found.\n\nGo to Settings \u2192 \ud83e\udd16 AI Advisor \u2192 paste your Anthropic API key, then save.');
-    return true;
-  }
-  return false;
+  showToast('AI tools are currently unavailable. Your financial data is not being sent to an AI provider.', 'warn');
+  return true;
 }
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
@@ -22120,9 +22109,7 @@ function obNext() {
 
 // ── SOCIAL AUTH ──────────────────────────────────────────────
 function uflSocialAuth(provider) {
-  // Simulate social auth — in production this would OAuth redirect
-  // For now: treat as quick-signup with provider name
-  uflLaunchApp({ name: '', age: 25, income: 0, currency: 'USD', social: provider });
+  showToast((provider || 'Social') + ' sign-in is not connected. Use the local FinanceOS profile instead.', 'warn');
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -22307,41 +22294,19 @@ async function uflLogin() {
 
 // ── FORGOT PASSWORD [v40 — clarifies local-only limitation] ─
 function uflForgotSend() {
-  const email = document.getElementById('fp-email')?.value.trim();
   const errEl = document.getElementById('fp-err');
-  if (!email || !email.includes('@')) { errEl.textContent = 'Please enter a valid email address.'; return; }
-
-  const stored = AUTH.get();
-  errEl.style.color = 'var(--green)';
-  if (stored && stored.email === email.toLowerCase().trim()) {
-    // Correct email — show reset form
-    errEl.innerHTML = '✅ Email matched. Set your new password below.';
-    setTimeout(() => { errEl.style.color=''; errEl.textContent=''; uflGoTo('ufl-reset'); }, 1800);
-  } else {
-    // Email not found — don't reveal whether account exists (prevent enumeration)
-    errEl.innerHTML = '✅ If that email is registered, you can reset your password below.';
-    setTimeout(() => { errEl.style.color=''; errEl.textContent=''; uflGoTo('ufl-reset'); }, 1800);
-  }
+  if (!errEl) return;
+  errEl.style.color = 'var(--gold)';
+  errEl.textContent = 'Email recovery is not connected. This FinanceOS profile exists only on this device, so no reset email was sent. Use your saved backup if you need to restore your data.';
 }
 
 // ── RESET PASSWORD [v40 — actually updates stored hash] ─────
 async function uflResetPassword() {
-  const newPwd  = document.getElementById('rp-new')?.value;
-  const confirm = document.getElementById('rp-confirm')?.value;
-  const errEl   = document.getElementById('rp-err');
-
-  if (!newPwd || newPwd.length < 8)  { errEl.textContent = 'New password must be at least 8 characters.'; return; }
-  if (newPwd !== confirm)            { errEl.textContent = 'Passwords do not match.'; return; }
-
-  errEl.textContent = '';
-  const stored = AUTH.get();
-  if (stored) {
-    await AUTH.update(newPwd); // re-hash with new password
+  const errEl = document.getElementById('rp-err');
+  if (errEl) {
+    errEl.style.color = 'var(--gold)';
+    errEl.textContent = 'Password recovery cannot be verified by email in this local-only build. No password has been changed.';
   }
-  // If no stored creds (old install), just proceed — data is already on device
-  BRUTE.reset();
-  _armSessionTimer();
-  uflLaunchApp(null);
 }
 
 // ── SKIP (Continue without account) ────────────────────────
@@ -22717,8 +22682,7 @@ async function submitPasswordChange() {
   showToast('✅ Password updated successfully', 'success');
 }
 function sendPinReset() {
-  _closeModal('modal-changepw');
-  showToast('📧 PIN reset email sent to your registered address','success');
+  showToast('PIN reset email is not connected. No email was sent and your PIN was not changed.', 'warn');
 }
 
 /* ── 2. DELETE ACCOUNT MODAL ── */
@@ -22726,38 +22690,54 @@ function openDeleteAccountModal() {
   var body = '<div style="text-align:center;margin-bottom:16px;">'
     + '<div style="font-size:36px;margin-bottom:8px;">⚠️</div>'
     + '<div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:6px;">This cannot be undone</div>'
-    + '<p style="font-size:12px;color:var(--textdim);line-height:1.7;">Deleting your account will permanently erase all your transactions, assets, settings and goals. A 30-day grace period applies before final deletion.</p></div>'
+    + '<p style="font-size:12px;color:var(--textdim);line-height:1.7;">FinanceOS has no online account in this build. This permanently removes the financial records and local profile stored in this browser. Export a backup before continuing.</p></div>'
     + '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:12px;padding:14px;">'
-    + '<label style="font-size:11px;color:var(--red);font-weight:700;display:block;margin-bottom:6px;">TYPE "DELETE" TO CONFIRM</label>'
+    + '<label style="font-size:11px;color:var(--red);font-weight:700;display:block;margin-bottom:6px;">TYPE "DELETE" TO CONFIRM LOCAL DATA REMOVAL</label>'
     + '<input type="text" id="deleteConfirmInput" class="form-input" placeholder="DELETE" oninput="var b=document.getElementById(\'deleteConfirmBtn\');b.disabled=this.value!==\'DELETE\';b.style.opacity=this.value===\'DELETE\'?\'1\':\'0.5\';b.style.cursor=this.value===\'DELETE\'?\'pointer\':\'not-allowed\';" style="border-color:rgba(248,113,113,.3);"/></div>';
   var footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-deleteaccount\')">Cancel</button>'
-    + '<button id="deleteConfirmBtn" class="btn-primary" style="flex:2;background:rgba(248,113,113,.2);border-color:rgba(248,113,113,.5);color:var(--red);opacity:.5;cursor:not-allowed;" disabled onclick="confirmAccountDeletion()">Delete My Account</button>';
+    + '<button id="deleteConfirmBtn" class="btn-primary" style="flex:2;background:rgba(248,113,113,.2);border-color:rgba(248,113,113,.5);color:var(--red);opacity:.5;cursor:not-allowed;" disabled onclick="confirmAccountDeletion()">Delete Local Data</button>';
   _modal('modal-deleteaccount', '🗑 Delete Account', body, footer, 'var(--red)');
 }
-function confirmAccountDeletion() {
+async function confirmAccountDeletion() {
+  const confirmation = document.getElementById('deleteConfirmInput');
+  if (!confirmation || confirmation.value !== 'DELETE') {
+    showToast('Type DELETE to confirm local data removal.', 'warn');
+    return;
+  }
+
+  try { await DB.clear(); } catch(error) { console.warn('Primary local data cleanup failed:', error); }
+  try { if (typeof AUTH !== 'undefined') AUTH.clear(); } catch(error) {}
+  try { if (typeof BRUTE !== 'undefined') BRUTE.reset(); } catch(error) {}
+
+  const extraKeys = new Set(['assetGrowthHx', 'nwHistory', 'alm_learning', 'fpLastSnap']);
+  try {
+    for (let index = localStorage.length - 1; index >= 0; index--) {
+      const key = localStorage.key(index);
+      if (key && (/^(fos_|finOS_|financeOS_)/i.test(key) || key === '_fos_sk' || extraKeys.has(key))) {
+        localStorage.removeItem(key);
+      }
+    }
+    for (let index = sessionStorage.length - 1; index >= 0; index--) {
+      const key = sessionStorage.key(index);
+      if (key && (/^fos_/i.test(key) || key === '_fos_sk')) sessionStorage.removeItem(key);
+    }
+  } catch(error) {
+    console.warn('Additional local data cleanup failed:', error);
+  }
+
   _closeModal('modal-deleteaccount');
-  showToast('⚠️ Account deletion scheduled — 30-day grace period begins now','info');
+  showToast('FinanceOS local data was removed from this browser.', 'success');
+  setTimeout(() => location.reload(), 1200);
 }
 
 /* ── 3. REVOKE DEVICE SESSION ── */
-function revokeDeviceSession(btn) {
-  var row = btn.parentElement;
-  while (row && !row.style.borderRadius) row = row.parentElement;
-  if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
-  btn.textContent = 'Revoked';
-  btn.style.color = 'var(--textdim)';
-  btn.style.borderColor = 'var(--border)';
-  showToast('🔒 Session revoked — device signed out','info');
+function revokeDeviceSession() {
+  showToast('Remote device revocation requires cloud sessions. FinanceOS is local-only in this build, so no remote session was changed.', 'warn');
 }
 
 /* ── 4. HELP CENTER (opens AI Advisor with FAQ prompt) ── */
 function openHelpCenter() {
-  navigateTo('advisor');
-  setTimeout(function() {
-    var inp = document.getElementById('chatInput') || document.querySelector('[id*="chat"][id*="nput"]');
-    if (inp) { inp.value = 'Show me frequently asked questions and how to use FinanceOS.'; inp.dispatchEvent(new Event('input')); }
-    showToast('💬 AI Help Center ready — ask anything!','info');
-  }, 400);
+  showToast('The AI Help Center is not connected yet. No AI request was sent. Use the app sections and backup tools for now.', 'warn');
 }
 
 /* ── 5. CALL SUPPORT MODAL ── */
@@ -22765,8 +22745,8 @@ function openCallSupportModal() {
   var body = '<div style="text-align:center;padding:10px 0 4px;">'
     + '<div style="font-size:40px;margin-bottom:12px;">📞</div>'
     + '<div style="font-size:16px;font-weight:700;margin-bottom:4px;">Support Line</div>'
-    + '<div style="font-size:12px;color:var(--textdim);margin-bottom:16px;">For urgent issues, reach us via email. In-app AI Advisor can resolve most questions instantly.</div>'
-    + '<div style="padding:14px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:12px;font-size:12px;color:var(--textmid);">💬 Fastest support: use the <strong>Email Support</strong> or <strong>AI Help Center</strong> below. Response within 24 hours.</div></div>';
+    + '<div style="font-size:12px;color:var(--textdim);margin-bottom:16px;">For support, use the external email option shown below. The in-app AI service is not connected in this build.</div>'
+    + '<div style="padding:14px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:12px;font-size:12px;color:var(--textmid);">💬 Use the <strong>Email Support</strong> option below. FinanceOS does not currently provide in-app AI support or a guaranteed response time.</div></div>';
   var footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-call\')">Close</button>'
     + '<button class="btn-primary" style="flex:2;" onclick="_closeModal(\'modal-call\');openEmailSupportModal()">✉️ Email Support</button>';
   _modal('modal-call', '📞 Contact Support', body, footer, 'var(--blue)');
