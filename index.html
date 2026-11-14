@@ -88,53 +88,11 @@
   const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
   document.getElementById('pwa-manifest').href = URL.createObjectURL(blob);
 
-  // ── Register inline Service Worker for offline + installability ──
-  // FIX SW-1: scope '/' fails for blob: URLs — use './' which resolves correctly.
-  // FIX SW-2: cache is now populated on install so offline navigation actually works.
+  // Register the single same-origin worker maintained in sw.js.
   if ('serviceWorker' in navigator) {
-    const swCode = `
-      const CACHE = 'financeOS-v46';
-      // On install: claim the app URL from any open client windows so we
-      // have something real to put in the cache (blob: SW URLs are useless).
-      self.addEventListener('install', e => {
-        self.skipWaiting();
-        e.waitUntil(
-          self.clients.matchAll({ type: 'window' }).then(clients => {
-            const urls = clients.map(c => c.url).filter(u => u && !u.startsWith('blob:'));
-            if (!urls.length) return;
-            return caches.open(CACHE).then(c => c.addAll(urls)).catch(() => {});
-          })
-        );
-      });
-      self.addEventListener('activate', e => {
-        e.waitUntil(
-          caches.keys().then(keys =>
-            Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-          ).then(() => clients.claim())
-        );
-      });
-      self.addEventListener('fetch', e => {
-        // Only intercept same-origin navigation requests
-        if (e.request.mode === 'navigate') {
-          e.respondWith(
-            fetch(e.request).then(res => {
-              if (res.ok) {
-                const clone = res.clone();
-                caches.open(CACHE).then(c => c.put(e.request, clone)).catch(() => {});
-              }
-              return res;
-            }).catch(() => caches.match(e.request).then(cached => {
-              if (cached) return cached;
-              // Last resort: return any cached page so the user sees something offline
-              return caches.open(CACHE).then(c => c.keys().then(ks => ks.length ? c.match(ks[0]) : Response.error()));
-            }))
-          );
-        }
-      });
-    `;
-    const swBlob = new Blob([swCode], {type:'text/javascript'});
-    const swUrl = URL.createObjectURL(swBlob);
-    navigator.serviceWorker.register(swUrl, {scope: './'}).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(error => {
+      console.warn('FinanceOS service worker registration failed:', error);
+    });
   }
 })();
 </script>
@@ -9747,7 +9705,7 @@ const DB = {
   export() {
     try {
       const payload = {
-        settings:          typeof SETTINGS !== 'undefined' ? SETTINGS : {},
+        settings:          (() => { const safe = { ...(typeof SETTINGS !== 'undefined' ? SETTINGS : {}) }; delete safe.aiKey; return safe; })(),
         transactions:      typeof transactions !== 'undefined' ? transactions : [],
         assets:            typeof assets !== 'undefined' ? assets : [],
         recurringTx:       typeof recurringTx !== 'undefined' ? recurringTx : [],
