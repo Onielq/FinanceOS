@@ -69,9 +69,9 @@ test('expense fallback is explicitly marked as an estimate', () => {
 });
 
 test('backup validator rejects malformed financial arrays before import', () => {
-  assert.throws(() => Core.validateBackup({ transactions: {} }), /transactions.*array/i);
-  assert.throws(() => Core.validateBackup({ transactions: [{ type: 'expense', amount: 'NaN', date: '2026-11-01' }] }), /invalid amount/i);
-  assert.throws(() => Core.validateBackup({ assets: [{ value: -10 }] }), /invalid value/i);
+  assert.throws(() => Core.validateBackup({ transactions: {}, assets: [], recurringTx: [] }), /transactions.*array/i);
+  assert.throws(() => Core.validateBackup({ transactions: [{ type: 'expense', amount: 'NaN', date: '2026-11-01' }], assets: [], recurringTx: [] }), /invalid amount/i);
+  assert.throws(() => Core.validateBackup({ transactions: [], assets: [{ value: -10 }], recurringTx: [] }), /invalid value/i);
   assert.throws(() => Core.validateBackup({ transactions: [], assets: [], settings: {} }), /recurringTx.*required/i);
   assert.doesNotThrow(() => Core.validateBackup({ version: 'v51', transactions: [], assets: [], recurringTx: [], settings: {} }));
 });
