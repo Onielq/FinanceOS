@@ -9398,6 +9398,15 @@ function sanitize(str) {
   return d.innerHTML;
 }
 
+function safeJsArg(value) {
+  const literal = JSON.stringify(value === undefined ? null : value);
+  return String(literal).replace(/&/g, '&amp;').replace(/\"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function safeDomId(value) {
+  return String(value === undefined || value === null ? '' : value).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 // ── FINANCIAL INPUT GUARD [v40] ───────────────────────────────────────
 // Prevents NaN, Infinity, negative-where-invalid, and absurdly large
 // values from silently corrupting financial calculations.
@@ -11728,6 +11737,8 @@ function renderTransactions() {
   const _txListEl = document.getElementById('txList');
   if (_txListEl) _txListEl.innerHTML = (_filtered.length ? _filtered : sorted).map(t=>{
     const cat = CATS[t.cat]||CATS.other;
+    const txIdArg = safeJsArg(t.id);
+    const txDomId = safeDomId(t.id);
     const _dateLabel = t.date===_todayKey
       ? '<span class="v42-date-today">Today</span>'
       : t.date===_yesterKey
@@ -11735,12 +11746,12 @@ function renderTransactions() {
         : sanitize(t.date);
     const _noteTag = t.note ? `<span style="font-size:9px;color:var(--textdim);margin-left:5px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:4px;padding:1px 5px;" title="${sanitize(t.note)}">📝</span>` : '';
     return `<div class="tx-row" style="--tx-color:${cat.color};">
-      <div class="tx-cat-icon" style="background:${cat.color}22;">${cat.icon}</div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></button><div class="row-menu" id="km-tx-${t.id}"><button class="row-menu-item" onclick="openEditTx(${t.id});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button><button class="row-menu-item danger" onclick="deleteTx(${t.id});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete</button></div></div>
+      <div class="tx-cat-icon" style="background:${cat.color}22;">${cat.icon}</div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></button><div class="row-menu" id="km-tx-${txDomId}"><button class="row-menu-item" onclick="openEditTx(${txIdArg});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button><button class="row-menu-item danger" onclick="deleteTx(${txIdArg});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete</button></div></div>
     </div>`;
   }).join(_filtered.length===0&&_v43q ? '' : '');
   if (_filtered.length === 0 && _v43q) {
     const _tl2 = document.getElementById('txList');
-    if (_tl2) _tl2.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results for "'+_v43q+'"</div><div class="empty-state-sub">Try a different keyword, date, or amount</div></div>';
+    if (_tl2) _tl2.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results for "'+sanitize(_v43q)+'"</div><div class="empty-state-sub">Try a different keyword, date, or amount</div></div>';
   }
 }
 
@@ -11907,14 +11918,16 @@ function renderAssets() {
     const gain = cost > 0 ? a.value - cost : null;
     const gainPct = cost > 0 ? ((a.value - cost)/cost*100).toFixed(1) : null;
     const gainColor = gain >= 0 ? 'var(--green)' : 'var(--red)';
-    return `<div class="card" style="border-left:3px solid ${cfg.color};position:relative;overflow:visible;cursor:pointer;" onclick="openAssetIntelligence(${a.id})" title="Click for full analysis">
+    const assetIdArg = safeJsArg(a.id);
+    const assetDomId = safeDomId(a.id);
+    return `<div class="card" style="border-left:3px solid ${cfg.color};position:relative;overflow:visible;cursor:pointer;" onclick="openAssetIntelligence(${assetIdArg})" title="Click for full analysis">
       <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;">
         <div style="width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;background:${cfg.color}18;flex-shrink:0;">${cfg.icon}</div>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(a.name)}</div>
           <div style="font-size:11px;color:var(--textdim);">${cfg.label} · ${pct}% of portfolio</div>
         </div>
-        <div class="row-menu-wrap"><button class="row-kebab" onclick="event.stopPropagation();toggleRowMenu('km-asset-${a.id}')" title="Actions"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></button><div class="row-menu" id="km-asset-${a.id}"><button class="row-menu-item" onclick="openEditAsset(${a.id});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button><button class="row-menu-item danger" onclick="deleteAsset(${a.id});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete</button></div>
+        <div class="row-menu-wrap"><button class="row-kebab" onclick="event.stopPropagation();toggleRowMenu('km-asset-${assetDomId}')" title="Actions"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></button><div class="row-menu" id="km-asset-${assetDomId}"><button class="row-menu-item" onclick="openEditAsset(${assetIdArg});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button><button class="row-menu-item danger" onclick="deleteAsset(${assetIdArg});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete</button></div>
         </div>
       </div>
       <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px;">${hideNums ? '••••' : fmt(a.value, false)}</div>
@@ -14109,7 +14122,7 @@ function addChatMsg(role, content, followUps) {
     const formatted = isAssistant ? formatAIResponse(content) : `<p style="margin:0;">${sanitize(content)}</p>`;
     const followUpHTML = followUps && followUps.length
       ? `<div class="ai-followups">${followUps.map(f =>
-          `<button class="ai-followup-btn" onclick="advSend('${sanitize(f).replace(/'/g,"&#39;")}')">
+          `<button class="ai-followup-btn" onclick="advSend(${safeJsArg(f)})">
             ${SVG_ARR} ${sanitize(f)}
           </button>`
         ).join('')}</div>`
