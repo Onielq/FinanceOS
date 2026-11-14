@@ -9662,6 +9662,7 @@ const DB = {
     }
     try {
       const encoded = VAULT.encode(JSON.stringify(state));
+      if (VAULT._persistent !== true) throw new Error('The vault key could not be saved permanently. FinanceOS will not write session-only financial data.');
       IDB.set(this._key, encoded).then(ok => {
         if (!ok) this._idbOk = false;
       }).catch(() => { this._idbOk = false; });
@@ -9829,7 +9830,7 @@ const SETTINGS_DEFAULTS = {
   showFx:            false,
   fxDisplayCurrency: '',
   // AI
-  aiKey:         'built-in', // AI service not connected — server setup required
+  aiKey:         '', // No provider key is stored in this browser build.
   aiStyle:       'coach',
   aiContext:     '',
   // Faith & Finance
@@ -9984,7 +9985,7 @@ function dbSave() {
   // FIX P1: Auto-snapshot net worth once per month for history tracking
   snapshotNetWorthIfNewMonth();
   DB.save({
-    settings: SETTINGS,
+    settings: (() => { const safe = { ...SETTINGS }; delete safe.aiKey; return safe; })(),
     transactions,
     assets,
     recurringTx,
@@ -10044,6 +10045,7 @@ function getFiscalPeriod(referenceDate) {
 }
 
 function txInCurrentFiscalPeriod(tx) {
+  if (!tx || typeof tx.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(tx.date)) return false;
   const fp = getFiscalPeriod();
   return tx.date >= fp.start && tx.date <= fp.end;
 }
@@ -10522,7 +10524,7 @@ function getMonthlyIncome() {
   const extraIncome = transactions
     .filter(tx =>
       tx.type === 'income' &&
-      tx.date >= period.start && tx.date <= period.end &&
+      txInCurrentFiscalPeriod(tx) &&
       !salaryDescriptions.some(description => tx.desc === description) &&
       !(tx.source === 'recurring' && tx.cat === 'income' && tx.amount >= SETTINGS.income * 0.8)
     )
@@ -10535,8 +10537,7 @@ function getMonthlyExpenseSnapshot() {
   const expenses = transactions.filter(tx =>
     FinanceOSCore.isRealExpense(tx) &&
     typeof tx.date === 'string' &&
-    tx.date >= period.start &&
-    tx.date <= period.end
+    txInCurrentFiscalPeriod(tx)
   );
 
   if (expenses.length) {
@@ -10545,6 +10546,8 @@ function getMonthlyExpenseSnapshot() {
       estimated: false,
       basis: 'current-fiscal-period-transactions',
       period: period.start + ' to ' + period.end,
+      periodStart: period.start,
+      periodEnd: period.end,
     };
   }
 
@@ -10571,6 +10574,8 @@ function getMonthlyExpenseSnapshot() {
       estimated: true,
       basis: 'most-recent-recorded-fiscal-period',
       period: latest[0] + ' to ' + latest[1].end,
+      periodStart: latest[0],
+      periodEnd: latest[1].end,
     };
   }
 
@@ -10579,6 +10584,8 @@ function getMonthlyExpenseSnapshot() {
     estimated: true,
     basis: 'income-based-estimate',
     period: null,
+    periodStart: null,
+    periodEnd: null,
   };
 }
 
@@ -11238,7 +11245,7 @@ function renderDashboard() {
   if (spEl) spEl.textContent = fmt(s.thisMoExp, hideNums);
   if (suEl) { suEl.textContent = fmt(surplus, hideNums); suEl.style.color = surplus > 0 ? 'var(--green)' : 'var(--red)'; }
   const stEl = document.getElementById('surplusTrend');
-  if (stEl) { stEl.textContent = sr + '% savings rate'; stEl.className = 'trend ' + (sr >= target ? 'up' : 'down'); }
+  if (stEl) { stEl.textContent = sr + '% savings rate' + (s.expensesEstimated ? ' · estimated expenses' : ''); stEl.className = 'trend ' + (sr >= target ? 'up' : 'down'); stEl.title = s.expensesEstimated ? 'Expense basis: ' + s.expenseEstimateBasis + (getMonthlyExpenseSnapshot().period ? ' (' + getMonthlyExpenseSnapshot().period + ')' : '') : 'Based on recorded expenses in the current fiscal period'; }
   // NEXUS: Show SMS-verified balance badge if ground truth is active
   const nwBadgeEl = document.getElementById('smsVerifiedBadge');
   if (nwBadgeEl) {
@@ -11294,8 +11301,10 @@ function renderDashboard() {
   if (sbrEl) { sbrEl.style.width = Math.min(100, Math.round(sr / (target * 1.5) * 100)) + '%'; sbrEl.style.background = sr >= target ? 'var(--green)' : sr >= target * 0.7 ? 'var(--gold)' : 'var(--red)'; }
 
   // Days left + daily budget
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const daysLeft    = daysInMonth - now.getDate();
+  const currentFiscalPeriod = getFiscalPeriod(now);
+  const fiscalPeriodEnd = new Date(currentFiscalPeriod.end + 'T12:00:00');
+  const todayLocal = new Date(FinanceOSCore.localDateISO(now) + 'T12:00:00');
+  const daysLeft = Math.max(0, Math.round((fiscalPeriodEnd - todayLocal) / 86400000));
   const dailyBudget = daysLeft > 0 ? Math.round(Math.max(0, left) / daysLeft) : 0;
   const dlvEl = document.getElementById('daysLeftVal');
   const dbsEl = document.getElementById('dailyBudgetSub');
@@ -11866,7 +11875,7 @@ function renderAssets() {
   // KPI stats row
   const _assetStatsEl = document.getElementById('assetStats');
   if (_assetStatsEl) _assetStatsEl.innerHTML = [
-    { label:'Total Net Worth', val:fmt(total,hideNums), color:'var(--gold)', icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', sub:'All assets combined', glow:true },
+    { label:'Total Assets', val:fmt(total,hideNums), color:'var(--gold)', icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', sub:'Assets tracked before debts', glow:true },
     { label:'Cash & Savings',  val:fmt(cash,hideNums),  color:'var(--green)',icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', sub:Math.round(cash/total*100||0)+'% of portfolio' },
     { label:'Invested',        val:fmt(invested,hideNums),color:'var(--blue)',icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>', sub:Math.round(invested/total*100||0)+'% of portfolio' },
     { label:'Total Gain / P&L',val:fmt(gainTotal,hideNums),color:gainTotal>=0?'var(--green)':'var(--red)',icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>', sub:'vs purchase price' },
@@ -12059,7 +12068,7 @@ function renderAssetGrowthChart() {
     const growth = total - first;
     const pct = ((total - first)/first*100).toFixed(1);
     const noteEl = document.getElementById('growthNote');
-    if (noteEl) noteEl.innerHTML = `<span style="color:${growth>=0?'var(--green)':'var(--red)'};">${growth>=0?'▲':'▼'} ${fmt(Math.abs(growth),false)} (${pct}%)</span> since ${assetGrowthHistory[0].label}`;
+    if (noteEl) noteEl.innerHTML = `<span style="color:${growth>=0?'var(--green)':'var(--red)'};">${growth>=0?'▲':'▼'} ${fmt(Math.abs(growth),false)} (${pct}%)</span> since ${sanitize(assetGrowthHistory[0].label)}`;
   }
 }
 
@@ -14077,7 +14086,7 @@ function addChatMsg(role, content, followUps) {
   const initials   = (SETTINGS.name?.[0] || 'U').toUpperCase();
   const avatarHTML = isAssistant
     ? `<div class="msg-avatar">${SVG_BOT}</div>`
-    : `<div class="msg-avatar" style="font-size:11px;font-weight:700;color:var(--green);">${initials}</div>`;
+    : `<div class="msg-avatar" style="font-size:11px;font-weight:700;color:var(--green);">${sanitize(initials)}</div>`;
 
   const roleTag = `<div class="msg-role">${SVG_BOLT}Advisor</div>`;
 
@@ -15035,14 +15044,15 @@ function fpGetMonthlySaved() {
     const rows = JSON.parse(localStorage.getItem('fos_debts') || '[]');
     if (Array.isArray(rows)) debtRows = rows;
   } catch(e) {}
+  const expenseSnapshot = getMonthlyExpenseSnapshot();
   return FinanceOSCore.calculateMonthlySavings({
     income: getMonthlyIncome(),
     expenses: getMonthlyExpenses(),
     transactions: transactions,
     subscriptions: subscriptions,
     debts: debtRows,
-    periodStart: getFiscalPeriod().start,
-    periodEnd: getFiscalPeriod().end,
+    periodStart: expenseSnapshot.periodStart || getFiscalPeriod().start,
+    periodEnd: expenseSnapshot.periodEnd || getFiscalPeriod().end,
   });
 }
 
