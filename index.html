@@ -4,7 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <!-- v40 Security: Content-Security-Policy restricts script/style sources -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.anthropic.com; worker-src blob:;"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self'; worker-src blob:;"/>
+<script src="./finance-core.js"></script>
 
 <!-- ── PWA / App Recognition ── -->
 <meta name="application-name" content="FinanceOS"/>
@@ -9493,20 +9494,22 @@ const VAULT = {
   _k: null,
   key() {
     if (this._k) return this._k;
-    try {
-      let k = sessionStorage.getItem('_fos_sk');
-      if (!k) {
-        k = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-              .map(b => b.toString(16).padStart(2,'0')).join('');
-        sessionStorage.setItem('_fos_sk', k);
-      }
-      this._k = k;
-    } catch(e) {
-      // sessionStorage unavailable — generate ephemeral in-memory key
-      // (no hardcoded fallback — prevents static-key attacks)
-      this._k = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-                      .map(b => b.toString(16).padStart(2,'0')).join('');
+    let key = null;
+    try { key = localStorage.getItem('_fos_sk'); } catch(_) {}
+    if (!key) {
+      try { key = sessionStorage.getItem('_fos_sk'); } catch(_) {}
     }
+    if (!key) {
+      key = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+    this._persistent = false;
+    try {
+      localStorage.setItem('_fos_sk', key);
+      this._persistent = true;
+    } catch(_) {}
+    try { sessionStorage.setItem('_fos_sk', key); } catch(_) {}
+    this._k = key;
     return this._k;
   },
   encode(str) {
@@ -9532,7 +9535,7 @@ const VAULT = {
 // ═══════════════════════════════════════════════════════════════════
 // DATABASE — localStorage-backed persistence layer
 // All reads/writes go through DB. Data survives page refresh.
-// All stored values are obfuscated via VAULT — never plaintext.
+// Legacy VAULT uses reversible XOR obfuscation. It is not cryptographic encryption.
 // ═══════════════════════════════════════════════════════════════════
 //
 // ── ARCHITECTURE ROADMAP (single-file → modular split) ──────────────────────
@@ -9629,65 +9632,114 @@ const DB = {
   _key: 'financeOS_v2',
   _idbOk: true,
 
-  // Load full state — decode from vault, parse JSON
-  // Sync fast path reads localStorage so the app boots immediately.
+  // Fast synchronous load. Preserve unreadable records for recovery; never delete them.
   load() {
-    try {
-      const raw = localStorage.getItem(this._key);
-      if (!raw) {
-        const legacy = localStorage.getItem('financeOS_v1');
-        if (legacy) {
-          const parsed = JSON.parse(legacy);
-          this.save(parsed);
-          localStorage.removeItem('financeOS_v1');
-          return parsed;
-        }
+    let raw = null;
+    try { raw = localStorage.getItem(this._key); } catch(e) {}
+    if (raw) {
+      let storedKey = null;
+      try { storedKey = localStorage.getItem('_fos_sk') || sessionStorage.getItem('_fos_sk'); } catch(e) {}
+      if (!storedKey) {
+        this._recoveryRequired = true;
+        this._recoveryReason = 'The old temporary vault key is missing. The saved record has been preserved.';
         return null;
       }
-      const decoded = VAULT.decode(raw);
-      if (decoded) return JSON.parse(decoded);
-    } catch(e) {
-      try { localStorage.removeItem(this._key); } catch(_) {}
+      try {
+        const decoded = VAULT.decode(raw);
+        if (!decoded) throw new Error('Saved record could not be decoded');
+        const parsed = JSON.parse(decoded);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Saved state is invalid');
+        this._recoveryRequired = false;
+        this._recoveryReason = null;
+        return parsed;
+      } catch(error) {
+        this._recoveryRequired = true;
+        this._recoveryReason = 'The saved record could not be decoded. It has not been deleted.';
+        console.error('FinanceOS data recovery required:', error);
+        return null;
+      }
+    }
+
+    try {
+      const legacy = localStorage.getItem('financeOS_v1');
+      if (legacy) {
+        const parsed = JSON.parse(legacy);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Legacy state is invalid');
+        this.save(parsed);
+        localStorage.removeItem('financeOS_v1');
+        return parsed;
+      }
+    } catch(error) {
+      this._recoveryRequired = true;
+      this._recoveryReason = 'The legacy saved record is invalid. It has not been deleted.';
+      console.error('FinanceOS legacy recovery required:', error);
     }
     return null;
   },
 
-  // Async load — prefers IndexedDB (survives Apple 7-day PWA eviction)
+  // IndexedDB recovery path. This is used at startup when the sync copy is absent or invalid.
   async loadAsync() {
-    try {
-      const idbRaw = await IDB.get(this._key);
-      if (idbRaw) {
-        const decoded = VAULT.decode(idbRaw);
-        if (decoded) {
-          const state = JSON.parse(decoded);
-          // Mirror to localStorage so sync load() works on next boot
-          try { localStorage.setItem(this._key, idbRaw); } catch(_) {}
-          return state;
-        }
+    let idbRaw = null;
+    try { idbRaw = await IDB.get(this._key); } catch(e) { this._idbOk = false; }
+    if (idbRaw) {
+      let storedKey = null;
+      try { storedKey = localStorage.getItem('_fos_sk') || sessionStorage.getItem('_fos_sk'); } catch(e) {}
+      if (!storedKey) {
+        this._recoveryRequired = true;
+        this._recoveryReason = 'The old temporary vault key is missing. The IndexedDB record has been preserved.';
+        return null;
       }
-    } catch(e) { this._idbOk = false; }
-    // IDB miss — fall back to localStorage
-    return this.load();
+      try {
+        const decoded = VAULT.decode(idbRaw);
+        if (!decoded) throw new Error('IndexedDB record could not be decoded');
+        const state = JSON.parse(decoded);
+        if (!state || typeof state !== 'object' || Array.isArray(state)) throw new Error('IndexedDB state is invalid');
+        this._recoveryRequired = false;
+        this._recoveryReason = null;
+        try { localStorage.setItem(this._key, idbRaw); } catch(_) {}
+        return state;
+      } catch(error) {
+        this._recoveryRequired = true;
+        this._recoveryReason = 'The IndexedDB record could not be decoded. It has not been deleted.';
+        console.error('FinanceOS IndexedDB recovery required:', error);
+      }
+    }
+    const localState = this.load();
+    if (localState) return localState;
+    return null;
   },
 
-  // Save full state — writes to BOTH IndexedDB and localStorage for maximum durability
-  save(state) {
+  // Save both copies. Do not overwrite an unreadable record except after a validated backup import.
+  save(state, options) {
+    const force = !!(options && options.force === true);
+    if (this._recoveryRequired && !force) {
+      console.error('FinanceOS save blocked. Import a valid backup before replacing unreadable saved data.');
+      return false;
+    }
     try {
       const encoded = VAULT.encode(JSON.stringify(state));
-      // Primary: IndexedDB (durable, not evicted by Apple's 7-day PWA policy)
       IDB.set(this._key, encoded).then(ok => {
         if (!ok) this._idbOk = false;
       }).catch(() => { this._idbOk = false; });
-      // Secondary: localStorage (fast sync reads, may be evicted on iOS PWA)
       try { localStorage.setItem(this._key, encoded); } catch(_) {}
-    } catch(e) { console.warn('DB save failed:', e); }
+      this._recoveryRequired = false;
+      this._recoveryReason = null;
+      return true;
+    } catch(error) {
+      console.warn('DB save failed:', error);
+      return false;
+    }
   },
 
-  // Clear all data from both stores
-  clear() {
-    IDB.del(this._key).catch(()=>{});
-    localStorage.removeItem(this._key);
-    localStorage.removeItem('financeOS_v1');
+  // Clear primary local state. Other FinanceOS module keys are cleared by the confirmed deletion flow.
+  async clear() {
+    try { await IDB.del(this._key); } catch(_) {}
+    try { localStorage.removeItem(this._key); } catch(_) {}
+    try { localStorage.removeItem('financeOS_v1'); } catch(_) {}
+    try { localStorage.removeItem('_fos_sk'); } catch(_) {}
+    try { sessionStorage.removeItem('_fos_sk'); } catch(_) {}
+    this._recoveryRequired = false;
+    this._recoveryReason = null;
   },
 
   // Export full backup as a downloadable .json file
@@ -9707,7 +9759,7 @@ const DB = {
         opportunities:     (() => { try { return JSON.parse(localStorage.getItem('finOS_opportunities')||'null'); } catch(e){ return null; } })(),
         netWorthHistory:   (() => { try { return JSON.parse(localStorage.getItem('fos_nw_history')||'null'); } catch(e){ return null; } })(),
         exportedAt:        new Date().toISOString(),
-        version:           'v46',
+        version:           'v51',
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url  = URL.createObjectURL(blob);
@@ -9946,22 +9998,50 @@ const monthlyHistory = buildMonthlyHistory();
 // Fix #2: recurringTx — recurring transaction rules
 let recurringTx = [];
 
+function applySavedFinanceState(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return false;
+  if (saved.settings && typeof saved.settings === 'object' && !Array.isArray(saved.settings)) {
+    const safeSettings = {};
+    Object.keys(SETTINGS).forEach(key => {
+      if (key !== 'aiKey' && Object.prototype.hasOwnProperty.call(saved.settings, key)) safeSettings[key] = saved.settings[key];
+    });
+    Object.assign(SETTINGS, safeSettings);
+  }
+  if (Array.isArray(saved.transactions)) transactions = saved.transactions;
+  if (Array.isArray(saved.assets)) assets = saved.assets;
+  if (Array.isArray(saved.recurringTx)) recurringTx = saved.recurringTx;
+  if (Array.isArray(saved.debts)) { try { localStorage.setItem('fos_debts', JSON.stringify(saved.debts)); } catch(e){} }
+  if (Array.isArray(saved.savingsGoals)) { try { localStorage.setItem('fos_goals', JSON.stringify(saved.savingsGoals)); } catch(e){} }
+  if (Array.isArray(saved.subscriptions)) { try { localStorage.setItem('fos_subs', JSON.stringify(saved.subscriptions)); } catch(e){} }
+  if (Array.isArray(saved.investments)) { try { localStorage.setItem('finOS_investments', JSON.stringify(saved.investments)); } catch(e){} }
+  if (Array.isArray(saved.opportunities)) { try { localStorage.setItem('finOS_opportunities', JSON.stringify(saved.opportunities)); } catch(e){} }
+  if (Array.isArray(saved.assetGrowthHistory)) { try { localStorage.setItem('assetGrowthHx', JSON.stringify(saved.assetGrowthHistory)); } catch(e){} }
+  if (Array.isArray(saved.netWorthHistory)) { try { localStorage.setItem('fos_nw_history', JSON.stringify(saved.netWorthHistory)); } catch(e){} }
+  return true;
+}
+
 (function initFromDB() {
   const saved = DB.load();
-  if (!saved) return;
-  if (saved.settings)      Object.assign(SETTINGS, saved.settings);
-  if (saved.transactions)  transactions = saved.transactions;
-  if (saved.assets)        assets = saved.assets;
-  if (saved.recurringTx)   recurringTx = saved.recurringTx;
-  // ── Restore unified modules ──
-  if (saved.debts)         { try { localStorage.setItem('fos_debts',  JSON.stringify(saved.debts)); } catch(e){} }
-  if (saved.savingsGoals)  { try { localStorage.setItem('fos_goals',  JSON.stringify(saved.savingsGoals)); } catch(e){} }
-  if (saved.subscriptions) { try { localStorage.setItem('fos_subs',   JSON.stringify(saved.subscriptions)); } catch(e){} }
-  if (saved.investments)   { try { localStorage.setItem('finOS_investments',   JSON.stringify(saved.investments)); } catch(e){} }
-  if (saved.opportunities) { try { localStorage.setItem('finOS_opportunities', JSON.stringify(saved.opportunities)); } catch(e){} }
-  if (saved.assetGrowthHistory) { try { localStorage.setItem('assetGrowthHx', JSON.stringify(saved.assetGrowthHistory)); } catch(e){} }
-  if (saved.netWorthHistory)    { try { localStorage.setItem('fos_nw_history', JSON.stringify(saved.netWorthHistory)); } catch(e){} }
-})();
+  if (applySavedFinanceState(saved)) return;
+
+  DB.loadAsync().then(restored => {
+    if (applySavedFinanceState(restored)) {
+      if (typeof applyRecurringTransactions === 'function') applyRecurringTransactions();
+      const rerender = () => { if (typeof renderAll === 'function') renderAll(); };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', rerender, { once: true });
+      else rerender();
+      return;
+    }
+    if (DB._recoveryRequired) {
+      const warn = () => showToast('Saved data could not be unlocked. Nothing was deleted. Import a valid FinanceOS backup to restore it.', 'warn');
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warn, { once: true });
+      else setTimeout(warn, 0);
+    }
+  }).catch(error => {
+    console.error('FinanceOS startup recovery failed:', error);
+    if (typeof showToast === 'function') showToast('Saved data could not be restored. Existing browser records were left untouched.', 'warn');
+  });
+})();;
 
 // ─── DB WRITE — call after any mutation ─────────────────────────────────────
 function dbSave() {
