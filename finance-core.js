@@ -140,8 +140,13 @@
   function calculateMonthlySavings(options) {
     const input = options || {};
     const currentMonth = input.month || localMonthISO(new Date());
+    const hasFiscalRange = typeof input.periodStart === 'string' && typeof input.periodEnd === 'string';
     const monthlyTransactions = (Array.isArray(input.transactions) ? input.transactions : []).filter(tx =>
-      tx && tx.type === 'expense' && typeof tx.date === 'string' && tx.date.startsWith(currentMonth)
+      isRealExpense(tx) &&
+      typeof tx.date === 'string' &&
+      (hasFiscalRange
+        ? tx.date >= input.periodStart && tx.date <= input.periodEnd
+        : tx.date.startsWith(currentMonth))
     );
 
     function isTracked(obligation, idFields) {
