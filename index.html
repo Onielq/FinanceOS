@@ -10233,6 +10233,7 @@ function applyRecurringTransactions() {
       }
 
       processed += 1;
+      changed = true;
       if (!rule.active) break;
       const frequency = rule.frequency || 'monthly';
       const anchorDay = rule.dayOfMonth || Number(dueDate.slice(-2));
@@ -10242,7 +10243,6 @@ function applyRecurringTransactions() {
         console.error('Could not advance recurring rule:', rule.id, error);
         break;
       }
-      changed = true;
     }
     if (processed >= 1200 && rule.nextDate && rule.nextDate <= today) catchupLimitReached = true;
   });
@@ -10564,7 +10564,7 @@ function showToast(msg, type='success') {
   t.style.border = `1px solid ${borders[type]||borders.success}`;
   t.style.color = textCols[type]||textCols.success;
   t.style.backdropFilter = 'blur(20px)';
-  t.innerHTML = msg;
+  t.textContent = String(msg);
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.style.opacity='0'; }, 3000);
@@ -12178,7 +12178,9 @@ function saveAsset() {
   const editId      = document.getElementById('assetEditId').value;
   const acquisition = document.getElementById('assetAcquisition')?.value || 'purchased';
   const acqDateRaw  = document.getElementById('assetAcquisitionDate')?.value || '';
-  if (!name || !value) return;
+  if (!name) { showToast('Enter an asset name', 'warn'); return; }
+  if (!Number.isFinite(value) || value <= 0) { showToast('Asset value must be a finite amount greater than zero', 'warn'); return; }
+  if (!Number.isFinite(cost) || cost < 0) { showToast('Asset cost cannot be negative or invalid', 'warn'); return; }
   const now     = new Date().toISOString();
   const acqDate = acqDateRaw || now.slice(0, 10);
   const txCat   = ASSET_CAT_MAP[type] || 'other';
@@ -14012,6 +14014,7 @@ Investments, budgeting, savings acceleration, side income, debt elimination, rea
 }
 
 function formatAIResponse(text) {
+  text = sanitize(String(text || ''));
   // Bold
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Bullets — wrap content, not the marker
@@ -16667,12 +16670,12 @@ function renderSmsPage() {
     } else {
       logEl.innerHTML = NEXUS._activityLog.map(entry => {
         const bankBadges = entry.banks.map(b =>
-          `<span style="display:inline-block;padding:1px 6px;background:rgba(212,168,67,.08);border:1px solid rgba(212,168,67,.2);border-radius:20px;font-size:10px;color:var(--gold);margin-right:3px;">${b}</span>`
+          `<span style="display:inline-block;padding:1px 6px;background:rgba(212,168,67,.08);border:1px solid rgba(212,168,67,.2);border-radius:20px;font-size:10px;color:var(--gold);margin-right:3px;">${sanitize(b)}</span>`
         ).join('');
         const balStr = entry.balance ? ` · Balance: <strong style="color:var(--green)">${fmtN(entry.balance)} ${SETTINGS.currency}</strong>` : '';
         return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:flex-start;gap:8px;">
-          <span style="color:var(--textdim);flex-shrink:0;">${entry.time}</span>
-          <div>${entry.msg}${balStr}<br>${bankBadges}</div>
+          <span style="color:var(--textdim);flex-shrink:0;">${sanitize(entry.time)}</span>
+          <div>${sanitize(entry.msg)}${balStr}<br>${bankBadges}</div>
         </div>`;
       }).join('');
     }
@@ -16687,7 +16690,7 @@ function renderSmsPage() {
     const color = topAlert.level === 'critical' ? 'var(--red)' : 'var(--gold)';
     bannerEl.style.borderColor = topAlert.level === 'critical' ? 'rgba(248,113,113,.3)' : 'rgba(212,168,67,.3)';
     bannerEl.style.background = topAlert.level === 'critical' ? 'rgba(248,113,113,.05)' : 'rgba(212,168,67,.05)';
-    bannerEl.innerHTML = `<span style="font-weight:700;color:${color}">${topAlert.icon} NEXUS Alert</span> — ${topAlert.msg}` +
+    bannerEl.innerHTML = `<span style="font-weight:700;color:${color}">${sanitize(topAlert.icon)} NEXUS Alert</span> — ${sanitize(topAlert.msg)}` +
       (brain.alerts.length > 1 ? ` <span style="color:var(--textdim)">+${brain.alerts.length-1} more</span>` : '');
   } else if (bannerEl) {
     bannerEl.style.display = 'none';
@@ -18275,10 +18278,19 @@ function handleImport(event) {
     try {
       // Parse first to validate before saving
       const parsed = JSON.parse(e.target.result);
-      if (typeof parsed !== 'object' || parsed === null) throw new Error('Invalid backup format');
+      FinanceOSCore.validateBackup(parsed);
+      if (parsed.settings) {
+        const safeSettings = {};
+        Object.keys(SETTINGS).forEach(key => {
+          if (key !== 'aiKey' && key !== '__proto__' && key !== 'constructor' && key !== 'prototype' && Object.prototype.hasOwnProperty.call(parsed.settings, key)) {
+            safeSettings[key] = parsed.settings[key];
+          }
+        });
+        parsed.settings = safeSettings;
+      }
 
-      // Save to DB (re-encrypts with current session key)
-      DB.save(parsed);
+      // A validated import is the only operation allowed to replace an unreadable vault record.
+      if (!DB.save(parsed, { force: true })) throw new Error('Could not safely save this backup. Existing data was left unchanged.');
 
       // Restore all in-memory state from parsed data
       if (parsed.settings)     Object.assign(SETTINGS, parsed.settings);
@@ -20589,12 +20601,12 @@ function renderAnalytics() {
   const fromEl = document.getElementById('analyticsFrom');
   const toEl   = document.getElementById('analyticsTo');
   const now    = new Date();
-  const from   = fromEl?.value || now.toISOString().substring(0,7)+'-01';
-  const to     = toEl?.value   || now.toISOString().split('T')[0];
+  const from   = fromEl?.value || FinanceOSCore.localMonthISO(now)+'-01';
+  const to     = toEl?.value   || FinanceOSCore.localDateISO(now);
 
   const inRange = transactions.filter(t => t.date >= from && t.date <= to);
   const income  = inRange.filter(t=>t.type==='income').reduce((s,t)=>s+Math.abs(t.amount),0);
-  const expense = inRange.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
+  const expense = inRange.filter(t=>FinanceOSCore.isRealExpense(t)).reduce((s,t)=>s+Math.abs(t.amount),0);
   const savings = income - expense;
   const sr      = income > 0 ? Math.round(savings/income*100) : 0;
 
@@ -20614,7 +20626,7 @@ function renderAnalytics() {
   // Category bars
   const catEl = document.getElementById('analyticsCatBars');
   if (catEl) {
-    const expenses = inRange.filter(t=>t.type==='expense');
+    const expenses = inRange.filter(t=>FinanceOSCore.isRealExpense(t));
     const catMap = {};
     expenses.forEach(t => { catMap[t.cat] = (catMap[t.cat]||0)+Math.abs(t.amount); });
     const total = Object.values(catMap).reduce((a,b)=>a+b,0)||1;
@@ -20635,11 +20647,15 @@ function renderAnalytics() {
   const compEl = document.getElementById('analyticsPeriodComp');
   if (compEl) {
     const days = Math.max(1, Math.round((new Date(to)-new Date(from))/86400000));
-    const priorTo   = new Date(new Date(from)-86400000).toISOString().split('T')[0];
-    const priorFrom = new Date(new Date(from)-(days+1)*86400000).toISOString().split('T')[0];
+    const priorToDate = new Date(from + 'T12:00:00');
+    priorToDate.setDate(priorToDate.getDate() - 1);
+    const priorFromDate = new Date(priorToDate);
+    priorFromDate.setDate(priorFromDate.getDate() - days);
+    const priorTo = FinanceOSCore.localDateISO(priorToDate);
+    const priorFrom = FinanceOSCore.localDateISO(priorFromDate);
     const prior = transactions.filter(t=>t.date>=priorFrom&&t.date<=priorTo);
     const priorInc = prior.filter(t=>t.type==='income').reduce((s,t)=>s+Math.abs(t.amount),0);
-    const priorExp = prior.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
+    const priorExp = prior.filter(t=>FinanceOSCore.isRealExpense(t)).reduce((s,t)=>s+Math.abs(t.amount),0);
     const rows = [
       { label:'Income',   cur:income,  prev:priorInc, better:'up' },
       { label:'Expenses', cur:expense, prev:priorExp, better:'down' },
@@ -26534,40 +26550,40 @@ function v42RenderForecast() {
 function exportTransactionsCSV() {
   try {
     const txArr = typeof transactions !== 'undefined' ? transactions : [];
-    const cur   = (typeof SETTINGS !== 'undefined' ? SETTINGS.currency : '') || 'RWF';
-    const CATS  = typeof window.CATS !== 'undefined' ? window.CATS : {};
-
-    const header = ['Date','Description','Type','Amount (' + cur + ')','Category','Notes'];
-    const rows   = [...txArr]
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .map(t => {
-        const cat = CATS[t.cat] ? CATS[t.cat].label : (t.cat || '');
-        const desc = (t.desc || '').replace(/"/g, '""');
-        const note = (t.note || t.notes || '').replace(/"/g, '""');
+    const currency = (typeof SETTINGS !== 'undefined' ? SETTINGS.currency : '') || 'RWF';
+    const categoryMap = typeof window.CATS !== 'undefined' ? window.CATS : {};
+    const escapeCsv = value => '"' + String(value === null || value === undefined ? '' : value).replace(/"/g, '""') + '"';
+    const headers = ['Date', 'Description', 'Type', 'Amount (' + currency + ')', 'Category', 'Notes'];
+    const rows = [...txArr]
+      .sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .map(tx => {
+        const category = categoryMap[tx.cat] ? categoryMap[tx.cat].label : (tx.cat || '');
+        const isTransfer = FinanceOSCore.TRANSFER_CATEGORIES.includes(String(tx.cat || '').toLowerCase());
+        const type = isTransfer ? 'Transfer' : (tx.type === 'income' ? 'Income' : 'Expense');
+        const amount = tx.type === 'income' ? Math.abs(Number(tx.amount) || 0) : -Math.abs(Number(tx.amount) || 0);
         return [
-          t.date,
-          `"${desc}"`,
-          t.type === 'income' ? 'Income' : 'Expense',
-          t.type === 'income' ? t.amount : -t.amount,
-          cat,
-          `"${note}"`,
-        ].join(',');
+          tx.date || '',
+          tx.desc || '',
+          type,
+          amount,
+          category,
+          tx.note || tx.notes || '',
+        ].map(escapeCsv).join(',');
       });
 
-    const csv  = [header.join(','), ...rows].join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    const date = new Date().toISOString().slice(0, 10);
-    a.href     = url;
-    a.download = `FinanceOS_transactions_${date}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const csv = [headers.map(escapeCsv).join(','), ...rows].join('\r\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'FinanceOS_transactions_' + FinanceOSCore.localDateISO(new Date()) + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    if (typeof showToast === 'function') showToast(`✅ ${txArr.length} transactions exported as CSV`, 'success');
-  } catch(e) {
-    if (typeof showToast === 'function') showToast('❌ CSV export failed — ' + (e.message || e), 'warn');
+    if (typeof showToast === 'function') showToast(txArr.length + ' transactions exported as CSV', 'success');
+  } catch(error) {
+    if (typeof showToast === 'function') showToast('CSV export failed — ' + (error.message || error), 'warn');
   }
 }
 
