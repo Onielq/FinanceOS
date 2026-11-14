@@ -148,31 +148,54 @@
         ? tx.date >= input.periodStart && tx.date <= input.periodEnd
         : tx.date.startsWith(currentMonth))
     );
+    const usedTransactions = new Set();
 
-    function isTracked(obligation, idFields) {
+    function matchesObligation(tx, obligation, idFields) {
       const id = obligation && obligation.id !== undefined ? String(obligation.id) : '';
-      const name = normalizeText(obligation && (obligation.name || obligation.description || obligation.lender || obligation.service));
       const recurringId = obligation && obligation.recurringId !== undefined ? String(obligation.recurringId) : '';
-      return monthlyTransactions.some(tx => {
-        for (const field of idFields) {
-          if (id && tx[field] !== undefined && String(tx[field]) === id) return true;
-        }
-        if (recurringId && tx.recurringId !== undefined && String(tx.recurringId) === recurringId) return true;
-        const description = normalizeText(String(tx.desc || tx.description || '') + ' ' + String(tx.note || tx.notes || ''));
-        return !!name && description.includes(name);
-      });
+      for (const field of idFields) {
+        if (id && tx[field] !== undefined && String(tx[field]) === id) return true;
+      }
+      if (recurringId && tx.recurringId !== undefined && String(tx.recurringId) === recurringId) return true;
+      const name = normalizeText(obligation && (
+        obligation.name || obligation.description || obligation.lender || obligation.service
+      ));
+      if (!name) return false;
+      const description = normalizeText(
+        String(tx.desc || tx.description || '') + ' ' + String(tx.note || tx.notes || '')
+      );
+      return description.includes(name);
     }
 
-    const untrackedSubscriptions = (Array.isArray(input.subscriptions) ? input.subscriptions : [])
+    function outstandingAmount(obligation, idFields, expectedAmount) {
+      const expected = nonNegative(expectedAmount);
+      let recorded = 0;
+      monthlyTransactions.forEach((tx, index) => {
+        if (usedTransactions.has(index) || !matchesObligation(tx, obligation, idFields)) return;
+        recorded += Math.abs(finite(tx.amount));
+        usedTransactions.add(index);
+      });
+      return Math.max(0, expected - recorded);
+    }
+
+    const unrecordedSubscriptions = (Array.isArray(input.subscriptions) ? input.subscriptions : [])
       .filter(subscription => subscription && subscription.status === 'active')
-      .filter(subscription => !isTracked(subscription, ['subscriptionId', 'subId', 'linkedSubscriptionId']))
-      .reduce((sum, subscription) => sum + monthlySubscriptionAmount(subscription), 0);
+      .reduce((sum, subscription) =>
+        sum + outstandingAmount(
+          subscription,
+          ['subscriptionId', 'subId', 'linkedSubscriptionId'],
+          monthlySubscriptionAmount(subscription)
+        ), 0);
 
-    const untrackedDebtPayments = (Array.isArray(input.debts) ? input.debts : [])
-      .filter(debt => debt && !isTracked(debt, ['debtId', 'loanId', 'linkedDebtId']))
-      .reduce((sum, debt) => sum + nonNegative(debt.monthly), 0);
+    const unrecordedDebtPayments = (Array.isArray(input.debts) ? input.debts : [])
+      .reduce((sum, debt) =>
+        sum + outstandingAmount(
+          debt,
+          ['debtId', 'loanId', 'linkedDebtId'],
+          debt && debt.monthly
+        ), 0);
 
-    return finite(input.income) - finite(input.expenses) - untrackedSubscriptions - untrackedDebtPayments;
+    return finite(input.income) - finite(input.expenses) - unrecordedSubscriptions - unrecordedDebtPayments;
   }
 
   function calculateBusinessMetrics(options) {
@@ -199,6 +222,11 @@
       'transactions', 'assets', 'recurringTx', 'debts', 'savingsGoals',
       'subscriptions', 'investments', 'opportunities', 'assetGrowthHistory', 'netWorthHistory',
     ];
+    for (const field of ['transactions', 'assets', 'recurringTx']) {
+      if (!Array.isArray(payload[field])) {
+        throw new Error('Backup field "' + field + '" is required and must be an array');
+      }
+    }
     for (const field of arrayFields) {
       if (payload[field] !== undefined && payload[field] !== null && !Array.isArray(payload[field])) {
         throw new Error('Backup field "' + field + '" must be an array');
