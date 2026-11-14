@@ -4,7 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <!-- v40 Security: Content-Security-Policy restricts script/style sources -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.anthropic.com; worker-src blob:;"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self'; worker-src blob:;"/>
+<script src="./finance-core.js"></script>
 
 <!-- ── PWA / App Recognition ── -->
 <meta name="application-name" content="FinanceOS"/>
@@ -26,7 +27,7 @@
 <!-- ── PWA Manifest (inline data URI for single-file PWA) ── -->
 <link id="pwa-manifest" rel="manifest"/>
 
-<title>FinanceOS v46 — Your Money · Your Business</title>
+<title>FinanceOS v51 — Your Money · Your Business</title>
 
 <script>
 // ── Inject PWA Manifest inline so single-file works as installable PWA ──
@@ -87,53 +88,11 @@
   const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
   document.getElementById('pwa-manifest').href = URL.createObjectURL(blob);
 
-  // ── Register inline Service Worker for offline + installability ──
-  // FIX SW-1: scope '/' fails for blob: URLs — use './' which resolves correctly.
-  // FIX SW-2: cache is now populated on install so offline navigation actually works.
+  // Register the single same-origin worker maintained in sw.js.
   if ('serviceWorker' in navigator) {
-    const swCode = `
-      const CACHE = 'financeOS-v46';
-      // On install: claim the app URL from any open client windows so we
-      // have something real to put in the cache (blob: SW URLs are useless).
-      self.addEventListener('install', e => {
-        self.skipWaiting();
-        e.waitUntil(
-          self.clients.matchAll({ type: 'window' }).then(clients => {
-            const urls = clients.map(c => c.url).filter(u => u && !u.startsWith('blob:'));
-            if (!urls.length) return;
-            return caches.open(CACHE).then(c => c.addAll(urls)).catch(() => {});
-          })
-        );
-      });
-      self.addEventListener('activate', e => {
-        e.waitUntil(
-          caches.keys().then(keys =>
-            Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-          ).then(() => clients.claim())
-        );
-      });
-      self.addEventListener('fetch', e => {
-        // Only intercept same-origin navigation requests
-        if (e.request.mode === 'navigate') {
-          e.respondWith(
-            fetch(e.request).then(res => {
-              if (res.ok) {
-                const clone = res.clone();
-                caches.open(CACHE).then(c => c.put(e.request, clone)).catch(() => {});
-              }
-              return res;
-            }).catch(() => caches.match(e.request).then(cached => {
-              if (cached) return cached;
-              // Last resort: return any cached page so the user sees something offline
-              return caches.open(CACHE).then(c => c.keys().then(ks => ks.length ? c.match(ks[0]) : Response.error()));
-            }))
-          );
-        }
-      });
-    `;
-    const swBlob = new Blob([swCode], {type:'text/javascript'});
-    const swUrl = URL.createObjectURL(swBlob);
-    navigator.serviceWorker.register(swUrl, {scope: './'}).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(error => {
+      console.warn('FinanceOS service worker registration failed:', error);
+    });
   }
 })();
 </script>
@@ -5623,9 +5582,9 @@ body.three-quarter-mode #unlockCard { display: flex; }
       <div class="card" id="spentCard">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div>
-            <div class="card-label">Spent This Month</div>
+            <div class="card-label">Spent This Period</div>
             <div class="card-val hidden-val" id="spentVal">—</div>
-            <div class="card-sub" id="expTrendText">vs last month</div>
+            <div class="card-sub" id="expTrendText">vs prior period</div>
           </div>
           <div class="card-icon" style="background:rgba(231,76,60,.15);color:var(--red);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></div>
         </div>
@@ -5642,7 +5601,7 @@ body.three-quarter-mode #unlockCard { display: flex; }
           <div>
             <div class="card-label">Monthly Surplus</div>
             <div class="card-val" id="surplusVal">—</div>
-            <div class="card-sub">Money left after spending</div>
+            <div class="card-sub" id="surplusSub">Money left after spending</div>
           </div>
           <div class="card-icon" style="background:rgba(96,165,250,.15);color:var(--blue);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
         </div>
@@ -8099,15 +8058,14 @@ The parser auto-detects amounts, dates, senders, and types."></textarea>
     <div class="card" data-settingstab="ai" style="margin-bottom:16px;border-color:rgba(96,165,250,.2);background:rgba(96,165,250,.03);">
       <div class="section-label" style="color:var(--blue);"><span style="display:inline-flex;align-items:center;gap:8px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3a3 3 0 0 0-3 3c0 .7.2 1.3.6 1.8A3 3 0 0 0 3 10.5a3 3 0 0 0 2.3 2.9A3 3 0 0 0 6 17v1h12v-1a3 3 0 0 0 .7-3.6A3 3 0 0 0 21 10.5a3 3 0 0 0-3.6-2.7A3 3 0 0 0 15 6a3 3 0 0 0-6 0z"/></svg> AI Advisor Settings</span></div>
 
-      <!-- AI STATUS BANNER — replaces developer-facing API key entry -->
-      <div style="background:rgba(163,230,53,0.07);border:1px solid rgba(163,230,53,0.25);border-radius:12px;padding:14px 16px;margin-bottom:18px;">
+      <!-- AI STATUS BANNER — local build has no protected AI backend -->
+      <div style="background:rgba(212,168,67,0.07);border:1px solid rgba(212,168,67,0.25);border-radius:12px;padding:14px 16px;margin-bottom:18px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-          <div style="width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px rgba(163,230,53,0.6);flex-shrink:0;"></div>
-          <div style="font-size:12px;font-weight:700;color:var(--green);">AI Advisor · Active</div>
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--gold);flex-shrink:0;"></div>
+          <div style="font-size:12px;font-weight:700;color:var(--gold);">AI Advisor · Not connected</div>
         </div>
-        <div style="font-size:11px;color:var(--textdim);line-height:1.6;">Brain Engine, Freedom Path analysis, leak detection, and decision simulation are all running. No account or API key needed — AI is built in.</div>
-        <!-- Hidden input kept for legacy code paths that read SETTINGS.aiKey — it holds an internal token -->
-        <input type="hidden" id="settingsAiKey" value="built-in"/>
+        <div style="font-size:11px;color:var(--textdim);line-height:1.6;">AI chat, statement analysis, and AI business advice are disabled in this local build. Financial tracking, calculations, projections, and charts continue to work on this device. No financial data is sent to an AI provider.</div>
+        <input type="hidden" id="settingsAiKey" value=""/>
       </div>
       <!-- NEXUS Push Notifications -->
       <div style="padding:12px 14px;background:rgba(212,168,67,.05);border:1px solid rgba(212,168,67,.2);border-radius:12px;margin-bottom:16px;">
@@ -8402,24 +8360,11 @@ The parser auto-detects amounts, dates, senders, and types."></textarea>
         </div>
       </div>
 
-      <!-- Cloud Sync -->
-      <div style="margin-bottom:14px;padding:12px 14px;background:rgba(96,165,250,.05);border:1px solid rgba(96,165,250,.15);border-radius:12px;">
-        <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px;">☁️ Cloud Sync <span style="font-size:9px;background:rgba(96,165,250,.15);color:var(--blue);border:1px solid rgba(96,165,250,.25);border-radius:6px;padding:1px 6px;font-weight:700;margin-left:6px;">BETA</span></div>
-        <div style="font-size:11px;color:var(--textdim);margin-bottom:10px;line-height:1.6;">Sync your data across devices. Currently in beta — available for Pro users.</div>
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div style="font-size:13px;font-weight:600;">Enable Cloud Sync</div>
-            <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;"><input type="checkbox" id="dataCloudSync" style="opacity:0;width:0;height:0;" onchange="settingsToggleSwitch(this,'dataCST','dataCSTh');showToast('☁️ Cloud Sync requires a Pro account — coming soon','info')"/><span id="dataCST" style="position:absolute;inset:0;background:rgba(255,255,255,.1);border:1px solid var(--border);border-radius:24px;transition:.2s;"></span><span id="dataCSTh" style="position:absolute;top:3px;left:3px;width:16px;height:16px;background:var(--textdim);border-radius:50%;transition:.2s;"></span></label>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div style="font-size:12px;color:var(--textmid);">Sync Interval</div>
-            <select class="form-select" style="width:auto;padding:5px 10px;font-size:12px;" disabled>
-              <option>Real-time</option>
-              <option>Every 15 min</option>
-              <option>Hourly</option>
-            </select>
-          </div>
-        </div>
+      <!-- Cloud Sync — not connected -->
+      <div style="margin-bottom:14px;padding:12px 14px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;">
+        <div style="font-size:10px;font-weight:700;color:var(--textdim);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px;">☁️ Cloud Sync <span style="font-size:9px;background:rgba(255,255,255,.06);color:var(--textdim);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-weight:700;margin-left:6px;">NOT CONNECTED</span></div>
+        <div style="font-size:11px;color:var(--textdim);line-height:1.6;">FinanceOS currently stores data in this browser only. There is no cloud database, online account, or cross-device sync in this build.</div>
+        <div style="font-size:11px;color:var(--textdim);margin-top:8px;">Export a JSON backup and keep it outside the browser to move your data to another device.</div>
       </div>
 
       <!-- Privacy & Diagnostics -->
@@ -9453,6 +9398,15 @@ function sanitize(str) {
   return d.innerHTML;
 }
 
+function safeJsArg(value) {
+  const literal = JSON.stringify(value === undefined ? null : value);
+  return String(literal).replace(/&/g, '&amp;').replace(/\"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function safeDomId(value) {
+  return String(value === undefined || value === null ? '' : value).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 // ── FINANCIAL INPUT GUARD [v40] ───────────────────────────────────────
 // Prevents NaN, Infinity, negative-where-invalid, and absurdly large
 // values from silently corrupting financial calculations.
@@ -9493,20 +9447,22 @@ const VAULT = {
   _k: null,
   key() {
     if (this._k) return this._k;
-    try {
-      let k = sessionStorage.getItem('_fos_sk');
-      if (!k) {
-        k = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-              .map(b => b.toString(16).padStart(2,'0')).join('');
-        sessionStorage.setItem('_fos_sk', k);
-      }
-      this._k = k;
-    } catch(e) {
-      // sessionStorage unavailable — generate ephemeral in-memory key
-      // (no hardcoded fallback — prevents static-key attacks)
-      this._k = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-                      .map(b => b.toString(16).padStart(2,'0')).join('');
+    let key = null;
+    try { key = localStorage.getItem('_fos_sk'); } catch(_) {}
+    if (!key) {
+      try { key = sessionStorage.getItem('_fos_sk'); } catch(_) {}
     }
+    if (!key) {
+      key = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+    this._persistent = false;
+    try {
+      localStorage.setItem('_fos_sk', key);
+      this._persistent = true;
+    } catch(_) {}
+    try { sessionStorage.setItem('_fos_sk', key); } catch(_) {}
+    this._k = key;
     return this._k;
   },
   encode(str) {
@@ -9532,7 +9488,7 @@ const VAULT = {
 // ═══════════════════════════════════════════════════════════════════
 // DATABASE — localStorage-backed persistence layer
 // All reads/writes go through DB. Data survives page refresh.
-// All stored values are obfuscated via VAULT — never plaintext.
+// Legacy VAULT uses reversible XOR obfuscation. It is not cryptographic encryption.
 // ═══════════════════════════════════════════════════════════════════
 //
 // ── ARCHITECTURE ROADMAP (single-file → modular split) ──────────────────────
@@ -9629,65 +9585,115 @@ const DB = {
   _key: 'financeOS_v2',
   _idbOk: true,
 
-  // Load full state — decode from vault, parse JSON
-  // Sync fast path reads localStorage so the app boots immediately.
+  // Fast synchronous load. Preserve unreadable records for recovery; never delete them.
   load() {
-    try {
-      const raw = localStorage.getItem(this._key);
-      if (!raw) {
-        const legacy = localStorage.getItem('financeOS_v1');
-        if (legacy) {
-          const parsed = JSON.parse(legacy);
-          this.save(parsed);
-          localStorage.removeItem('financeOS_v1');
-          return parsed;
-        }
+    let raw = null;
+    try { raw = localStorage.getItem(this._key); } catch(e) {}
+    if (raw) {
+      let storedKey = null;
+      try { storedKey = localStorage.getItem('_fos_sk') || sessionStorage.getItem('_fos_sk'); } catch(e) {}
+      if (!storedKey) {
+        this._recoveryRequired = true;
+        this._recoveryReason = 'The old temporary vault key is missing. The saved record has been preserved.';
         return null;
       }
-      const decoded = VAULT.decode(raw);
-      if (decoded) return JSON.parse(decoded);
-    } catch(e) {
-      try { localStorage.removeItem(this._key); } catch(_) {}
+      try {
+        const decoded = VAULT.decode(raw);
+        if (!decoded) throw new Error('Saved record could not be decoded');
+        const parsed = JSON.parse(decoded);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Saved state is invalid');
+        this._recoveryRequired = false;
+        this._recoveryReason = null;
+        return parsed;
+      } catch(error) {
+        this._recoveryRequired = true;
+        this._recoveryReason = 'The saved record could not be decoded. It has not been deleted.';
+        console.error('FinanceOS data recovery required:', error);
+        return null;
+      }
+    }
+
+    try {
+      const legacy = localStorage.getItem('financeOS_v1');
+      if (legacy) {
+        const parsed = JSON.parse(legacy);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Legacy state is invalid');
+        if (!this.save(parsed)) throw new Error('Could not safely persist the migrated legacy record. The original was preserved.');
+        localStorage.removeItem('financeOS_v1');
+        return parsed;
+      }
+    } catch(error) {
+      this._recoveryRequired = true;
+      this._recoveryReason = 'The legacy saved record is invalid. It has not been deleted.';
+      console.error('FinanceOS legacy recovery required:', error);
     }
     return null;
   },
 
-  // Async load — prefers IndexedDB (survives Apple 7-day PWA eviction)
+  // IndexedDB recovery path. This is used at startup when the sync copy is absent or invalid.
   async loadAsync() {
-    try {
-      const idbRaw = await IDB.get(this._key);
-      if (idbRaw) {
-        const decoded = VAULT.decode(idbRaw);
-        if (decoded) {
-          const state = JSON.parse(decoded);
-          // Mirror to localStorage so sync load() works on next boot
-          try { localStorage.setItem(this._key, idbRaw); } catch(_) {}
-          return state;
-        }
+    let idbRaw = null;
+    try { idbRaw = await IDB.get(this._key); } catch(e) { this._idbOk = false; }
+    if (idbRaw) {
+      let storedKey = null;
+      try { storedKey = localStorage.getItem('_fos_sk') || sessionStorage.getItem('_fos_sk'); } catch(e) {}
+      if (!storedKey) {
+        this._recoveryRequired = true;
+        this._recoveryReason = 'The old temporary vault key is missing. The IndexedDB record has been preserved.';
+        return null;
       }
-    } catch(e) { this._idbOk = false; }
-    // IDB miss — fall back to localStorage
-    return this.load();
+      try {
+        const decoded = VAULT.decode(idbRaw);
+        if (!decoded) throw new Error('IndexedDB record could not be decoded');
+        const state = JSON.parse(decoded);
+        if (!state || typeof state !== 'object' || Array.isArray(state)) throw new Error('IndexedDB state is invalid');
+        this._recoveryRequired = false;
+        this._recoveryReason = null;
+        try { localStorage.setItem(this._key, idbRaw); } catch(_) {}
+        return state;
+      } catch(error) {
+        this._recoveryRequired = true;
+        this._recoveryReason = 'The IndexedDB record could not be decoded. It has not been deleted.';
+        console.error('FinanceOS IndexedDB recovery required:', error);
+      }
+    }
+    const localState = this.load();
+    if (localState) return localState;
+    return null;
   },
 
-  // Save full state — writes to BOTH IndexedDB and localStorage for maximum durability
-  save(state) {
+  // Save both copies. Do not overwrite an unreadable record except after a validated backup import.
+  save(state, options) {
+    const force = !!(options && options.force === true);
+    if (this._recoveryRequired && !force) {
+      console.error('FinanceOS save blocked. Import a valid backup before replacing unreadable saved data.');
+      return false;
+    }
     try {
       const encoded = VAULT.encode(JSON.stringify(state));
-      // Primary: IndexedDB (durable, not evicted by Apple's 7-day PWA policy)
+      if (VAULT._persistent !== true) throw new Error('The vault key could not be saved permanently. FinanceOS will not write session-only financial data.');
       IDB.set(this._key, encoded).then(ok => {
         if (!ok) this._idbOk = false;
       }).catch(() => { this._idbOk = false; });
-      // Secondary: localStorage (fast sync reads, may be evicted on iOS PWA)
       try { localStorage.setItem(this._key, encoded); } catch(_) {}
-    } catch(e) { console.warn('DB save failed:', e); }
+      this._recoveryRequired = false;
+      this._recoveryReason = null;
+      return true;
+    } catch(error) {
+      console.warn('DB save failed:', error);
+      return false;
+    }
   },
 
-  // Clear all data from both stores
-  clear() {
-    IDB.del(this._key).catch(()=>{});
-    localStorage.removeItem(this._key);
-    localStorage.removeItem('financeOS_v1');
+  // Clear primary local state. Other FinanceOS module keys are cleared by the confirmed deletion flow.
+  async clear() {
+    try { await IDB.del(this._key); } catch(_) {}
+    try { localStorage.removeItem(this._key); } catch(_) {}
+    try { localStorage.removeItem('financeOS_v1'); } catch(_) {}
+    try { localStorage.removeItem('_fos_sk'); } catch(_) {}
+    try { sessionStorage.removeItem('_fos_sk'); } catch(_) {}
+    this._recoveryRequired = false;
+    this._recoveryReason = null;
   },
 
   // Export full backup as a downloadable .json file
@@ -9695,7 +9701,7 @@ const DB = {
   export() {
     try {
       const payload = {
-        settings:          typeof SETTINGS !== 'undefined' ? SETTINGS : {},
+        settings:          (() => { const safe = { ...(typeof SETTINGS !== 'undefined' ? SETTINGS : {}) }; delete safe.aiKey; return safe; })(),
         transactions:      typeof transactions !== 'undefined' ? transactions : [],
         assets:            typeof assets !== 'undefined' ? assets : [],
         recurringTx:       typeof recurringTx !== 'undefined' ? recurringTx : [],
@@ -9707,12 +9713,12 @@ const DB = {
         opportunities:     (() => { try { return JSON.parse(localStorage.getItem('finOS_opportunities')||'null'); } catch(e){ return null; } })(),
         netWorthHistory:   (() => { try { return JSON.parse(localStorage.getItem('fos_nw_history')||'null'); } catch(e){ return null; } })(),
         exportedAt:        new Date().toISOString(),
-        version:           'v46',
+        version:           'v51',
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10);
+      const date = FinanceOSCore.localDateISO(new Date());
       a.href     = url;
       a.download = `FinanceOS_backup_${date}.json`;
       document.body.appendChild(a);
@@ -9833,7 +9839,7 @@ const SETTINGS_DEFAULTS = {
   showFx:            false,
   fxDisplayCurrency: '',
   // AI
-  aiKey:         'built-in', // AI is built-in — no user key required
+  aiKey:         '', // No provider key is stored in this browser build.
   aiStyle:       'coach',
   aiContext:     '',
   // Faith & Finance
@@ -9853,13 +9859,11 @@ const SETTINGS_DEFAULTS = {
 const SETTINGS = Object.assign({}, SETTINGS_DEFAULTS);
 
 // ── AI API helper — always use this for fetch headers ──
+async function financeOSAIRequest() {
+  throw new Error('AI is not connected. No external AI request was sent.');
+}
 function aiHeaders() {
-  // AI is built-in — no user API key needed.
-  // The 'built-in' sentinel in SETTINGS.aiKey signals we use the platform proxy.
-  const key = (SETTINGS.aiKey||'').trim();
-  const h = { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
-  if (key && key !== 'built-in') h['x-api-key'] = key;
-  return h;
+  throw new Error('AI is not connected. FinanceOS needs a protected server-side AI service before this feature can run.');
 }
 function toggleAiKeyVis() {
   const el = document.getElementById('settingsAiKey');
@@ -9867,14 +9871,8 @@ function toggleAiKeyVis() {
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 function aiKeyMissing() {
-  // AI is built-in — no key needed. Legacy guard kept for safety but always returns false.
-  const key = (SETTINGS.aiKey||'').trim();
-  if (!key || key === 'built-in') return false; // AI is ready, no blocking alert
-  if (false) { // unreachable — original alert preserved for reference only
-    alert('\u26a0\ufe0f  No API key found.\n\nGo to Settings \u2192 \ud83e\udd16 AI Advisor \u2192 paste your Anthropic API key, then save.');
-    return true;
-  }
-  return false;
+  showToast('AI tools are currently unavailable. Your financial data is not being sent to an AI provider.', 'warn');
+  return true;
 }
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
@@ -9927,7 +9925,7 @@ function buildMonthlyHistory() {
   const months = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = d.toISOString().substring(0,7);
+    const key = FinanceOSCore.localMonthISO(d);
     const label = d.toLocaleString('default',{month:'short'});
     const txMonth = transactions.filter(t => t.date.startsWith(key));
     const inc  = txMonth.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0)
@@ -9935,7 +9933,7 @@ function buildMonthlyHistory() {
     const exp  = Math.abs(txMonth
                    .filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat))
                    .reduce((s,t)=>s+t.amount,0));
-    months.push({ month: label, income: inc || (key <= now.toISOString().substring(0,7) ? SETTINGS.income : 0), expenses: exp });
+    months.push({ month: label, income: inc || (key <= FinanceOSCore.localMonthISO(now) ? SETTINGS.income : 0), expenses: exp });
   }
   return months;
 }
@@ -9946,29 +9944,62 @@ const monthlyHistory = buildMonthlyHistory();
 // Fix #2: recurringTx — recurring transaction rules
 let recurringTx = [];
 
+function applySavedFinanceState(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return false;
+  if (saved.settings && typeof saved.settings === 'object' && !Array.isArray(saved.settings)) {
+    const safeSettings = {};
+    Object.keys(SETTINGS).forEach(key => {
+      if (key !== 'aiKey' && Object.prototype.hasOwnProperty.call(saved.settings, key)) safeSettings[key] = saved.settings[key];
+    });
+    Object.assign(SETTINGS, safeSettings);
+  }
+  if (Array.isArray(saved.transactions)) transactions = saved.transactions;
+  if (Array.isArray(saved.assets)) assets = saved.assets;
+  if (Array.isArray(saved.recurringTx)) recurringTx = saved.recurringTx;
+  if (Array.isArray(saved.debts)) { try { localStorage.setItem('fos_debts', JSON.stringify(saved.debts)); } catch(e){} }
+  if (Array.isArray(saved.savingsGoals)) { try { localStorage.setItem('fos_goals', JSON.stringify(saved.savingsGoals)); } catch(e){} }
+  if (Array.isArray(saved.subscriptions)) { try { localStorage.setItem('fos_subs', JSON.stringify(saved.subscriptions)); } catch(e){} }
+  if (Array.isArray(saved.investments)) { try { localStorage.setItem('finOS_investments', JSON.stringify(saved.investments)); } catch(e){} }
+  if (Array.isArray(saved.opportunities)) { try { localStorage.setItem('finOS_opportunities', JSON.stringify(saved.opportunities)); } catch(e){} }
+  if (Array.isArray(saved.assetGrowthHistory)) { try { localStorage.setItem('assetGrowthHx', JSON.stringify(saved.assetGrowthHistory)); } catch(e){} }
+  if (Array.isArray(saved.netWorthHistory)) { try { localStorage.setItem('fos_nw_history', JSON.stringify(saved.netWorthHistory)); } catch(e){} }
+  return true;
+}
+
 (function initFromDB() {
   const saved = DB.load();
-  if (!saved) return;
-  if (saved.settings)      Object.assign(SETTINGS, saved.settings);
-  if (saved.transactions)  transactions = saved.transactions;
-  if (saved.assets)        assets = saved.assets;
-  if (saved.recurringTx)   recurringTx = saved.recurringTx;
-  // ── Restore unified modules ──
-  if (saved.debts)         { try { localStorage.setItem('fos_debts',  JSON.stringify(saved.debts)); } catch(e){} }
-  if (saved.savingsGoals)  { try { localStorage.setItem('fos_goals',  JSON.stringify(saved.savingsGoals)); } catch(e){} }
-  if (saved.subscriptions) { try { localStorage.setItem('fos_subs',   JSON.stringify(saved.subscriptions)); } catch(e){} }
-  if (saved.investments)   { try { localStorage.setItem('finOS_investments',   JSON.stringify(saved.investments)); } catch(e){} }
-  if (saved.opportunities) { try { localStorage.setItem('finOS_opportunities', JSON.stringify(saved.opportunities)); } catch(e){} }
-  if (saved.assetGrowthHistory) { try { localStorage.setItem('assetGrowthHx', JSON.stringify(saved.assetGrowthHistory)); } catch(e){} }
-  if (saved.netWorthHistory)    { try { localStorage.setItem('fos_nw_history', JSON.stringify(saved.netWorthHistory)); } catch(e){} }
-})();
+  if (applySavedFinanceState(saved)) return;
+
+  DB.loadAsync().then(restored => {
+    if (applySavedFinanceState(restored)) {
+      if (typeof applyRecurringTransactions === 'function') applyRecurringTransactions();
+      const rerender = () => { if (typeof renderAll === 'function') renderAll(); };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', rerender, { once: true });
+      else rerender();
+      return;
+    }
+    if (DB._recoveryRequired) {
+      const warn = () => showToast('Saved data could not be unlocked. Nothing was deleted. Import a valid FinanceOS backup to restore it.', 'warn');
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warn, { once: true });
+      else setTimeout(warn, 0);
+    }
+  }).catch(error => {
+    console.error('FinanceOS startup recovery failed:', error);
+    if (typeof showToast === 'function') showToast('Saved data could not be restored. Existing browser records were left untouched.', 'warn');
+  });
+})();;
 
 // ─── DB WRITE — call after any mutation ─────────────────────────────────────
 function dbSave() {
+  // Preserve unreadable stored records. Do not write snapshots or new state until a validated import restores the vault.
+  if (DB._recoveryRequired) {
+    console.error('FinanceOS save skipped: restore from a valid backup before changing stored financial data.');
+    return false;
+  }
   // FIX P1: Auto-snapshot net worth once per month for history tracking
   snapshotNetWorthIfNewMonth();
   DB.save({
-    settings: SETTINGS,
+    settings: (() => { const safe = { ...SETTINGS }; delete safe.aiKey; return safe; })(),
     transactions,
     assets,
     recurringTx,
@@ -9990,20 +10021,9 @@ function snapshotNetWorthIfNewMonth() {
   try {
     const history = getNetWorthHistory();
     const now = new Date();
-    const key = now.toISOString().substring(0,7); // YYYY-MM
+    const key = getFiscalPeriod(now).start; // fiscal-period start date
     if (history.length && history[history.length-1].month === key) return; // already snapped this month
-    const stats = (function() {
-      const totalAssets = assets.reduce((s,a)=>s+a.value,0);
-      let invExtra = 0;
-      try {
-        const invs = JSON.parse(localStorage.getItem('finOS_investments')||'[]');
-        const assetKeys = new Set(assets.map(a=>(a.name||'').toLowerCase().trim()));
-        invExtra = invs.filter(i=>!assetKeys.has((i.name||'').toLowerCase().trim())).reduce((s,i)=>s+(i.currentValue||i.capital||0),0);
-      } catch(e){}
-      let totalDebt = 0;
-      try { totalDebt = JSON.parse(localStorage.getItem('fos_debts')||'[]').reduce((s,d)=>s+(d.balance||0),0); } catch(e){}
-      return { netWorth: totalAssets + invExtra - totalDebt };
-    })();
+    const stats = { netWorth: getStats().netWorth };
     history.push({ month: key, netWorth: stats.netWorth, income: getMonthlyIncome(), expenses: getMonthlyExpenses() });
     if (history.length > 24) history.splice(0, history.length - 24); // keep 2 years
     localStorage.setItem('fos_nw_history', JSON.stringify(history));
@@ -10034,11 +10054,12 @@ function getFiscalPeriod(referenceDate) {
     periodEnd   = new Date(d.getFullYear(), d.getMonth(), startDay - 1);
   }
   // Format as YYYY-MM-DD strings for easy comparison
-  const fmt = dt => dt.toISOString().split('T')[0];
+  const fmt = dt => FinanceOSCore.localDateISO(dt);
   return { start: fmt(periodStart), end: fmt(periodEnd) };
 }
 
 function txInCurrentFiscalPeriod(tx) {
+  if (!tx || typeof tx.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(tx.date)) return false;
   const fp = getFiscalPeriod();
   return tx.date >= fp.start && tx.date <= fp.end;
 }
@@ -10091,80 +10112,84 @@ const FX = {
 //              nextDate, active, created_at }
 // ═══════════════════════════════════════════════════════════════════
 function applyRecurringTransactions() {
-  if (!recurringTx || !recurringTx.length) return;
-  const today = new Date().toISOString().split('T')[0];
+  if (!Array.isArray(recurringTx) || !recurringTx.length) return;
+  const today = FinanceOSCore.localDateISO(new Date());
   let changed = false;
+  let catchupLimitReached = false;
 
   recurringTx.forEach(rule => {
-    if (!rule.active) return;
-    if (!rule.nextDate || rule.nextDate > today) return;
+    if (!rule || !rule.active || !rule.nextDate || rule.nextDate > today) return;
+    let processed = 0;
 
-    // ── Lease-to-Own: split payment into equity + interest ────────────────
-    if (rule.leaseType === 'own' && rule.leaseAssetRef) {
-      const assetIdx = assets.findIndex(a => a.id === rule.leaseAssetRef);
-      const principal = rule.leasePrincipal || 0;
-      const interest  = rule.leaseInterest  || 0;
-
-      // Full payment logged as expense
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: `${rule.desc} (equity + interest)`,
-        date: rule.nextDate, cat: rule.cat, type: 'expense',
-        amount: -Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id,
-        leaseType: 'own',
-        leasePrincipal: principal, leaseInterest: interest,
-      });
-
-      // Update asset equity counter
-      if (assetIdx >= 0) {
-        const a = assets[assetIdx];
-        a.leasePaidMonths  = (a.leasePaidMonths  || 0) + 1;
-        a.leaseEquityBuilt = (a.leaseEquityBuilt || 0) + principal;
-        // If fully paid, mark as owned
-        if (a.leaseMonths && a.leasePaidMonths >= a.leaseMonths) {
-          a.acquisition = 'purchased';
-          a.leaseFullyOwned = true;
-          rule.active = false; // Stop recurring
-          showToast(`🎉 ${a.name} is now fully owned!`, 'success');
-        }
+    while (rule.active && rule.nextDate && rule.nextDate <= today && processed < 1200) {
+      const dueDate = rule.nextDate;
+      try { FinanceOSCore.parseISODate(dueDate); }
+      catch(error) {
+        console.error('Invalid recurring date; rule left unchanged:', rule.id, dueDate);
+        break;
       }
 
-    // ── Lease-to-Rent: pure expense ───────────────────────────────────────
-    } else if (rule.leaseType === 'rent') {
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: rule.desc, date: rule.nextDate, cat: rule.cat, type: 'expense',
-        amount: -Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id, leaseType: 'rent',
-      });
+      const alreadyCreated = transactions.some(tx =>
+        tx && tx.source === 'recurring' &&
+        String(tx.recurringId) === String(rule.id) &&
+        tx.date === dueDate
+      );
 
-    // ── Standard recurring (income or expense) ────────────────────────────
-    } else {
-      transactions.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join(""))),
-        desc: rule.desc, date: rule.nextDate, cat: rule.cat, type: rule.type,
-        amount: rule.type === 'expense' ? -Math.abs(rule.amount) : Math.abs(rule.amount),
-        created_at: new Date().toISOString(),
-        source: 'recurring', recurringId: rule.id,
-      });
-    }
+      if (!alreadyCreated) {
+        const newId = () => (crypto.randomUUID
+          ? crypto.randomUUID()
+          : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+        const record = {
+          id: newId(),
+          desc: rule.desc || 'Recurring transaction',
+          date: dueDate,
+          cat: rule.cat || 'other',
+          type: rule.type === 'income' ? 'income' : 'expense',
+          amount: rule.type === 'income' ? Math.abs(Number(rule.amount) || 0) : -Math.abs(Number(rule.amount) || 0),
+          created_at: new Date().toISOString(),
+          source: 'recurring',
+          recurringId: rule.id,
+        };
 
-    // Advance nextDate
-    const next = new Date(rule.nextDate);
-    if (rule.frequency === 'weekly')         next.setDate(next.getDate() + 7);
-    else if (rule.frequency === 'biweekly')  next.setDate(next.getDate() + 14);
-    else {
-      next.setMonth(next.getMonth() + 1);
-      if (rule.dayOfMonth) next.setDate(Math.min(rule.dayOfMonth, 28));
+        if (rule.leaseType === 'own' && rule.leaseAssetRef) {
+          record.desc = (rule.desc || 'Lease payment') + ' (equity + interest)';
+          record.leaseType = 'own';
+          record.leasePrincipal = Number(rule.leasePrincipal) || 0;
+          record.leaseInterest = Number(rule.leaseInterest) || 0;
+          const asset = assets.find(item => String(item.id) === String(rule.leaseAssetRef));
+          if (asset) {
+            asset.leasePaidMonths = (asset.leasePaidMonths || 0) + 1;
+            asset.leaseEquityBuilt = (asset.leaseEquityBuilt || 0) + record.leasePrincipal;
+            if (asset.leaseMonths && asset.leasePaidMonths >= asset.leaseMonths) {
+              asset.acquisition = 'purchased';
+              asset.leaseFullyOwned = true;
+              rule.active = false;
+              showToast(asset.name + ' is now fully owned!', 'success');
+            }
+          }
+        } else if (rule.leaseType === 'rent') {
+          record.leaseType = 'rent';
+        }
+        transactions.push(record);
+      }
+
+      processed += 1;
+      changed = true;
+      if (!rule.active) break;
+      const frequency = rule.frequency || 'monthly';
+      const anchorDay = rule.dayOfMonth || Number(dueDate.slice(-2));
+      try {
+        rule.nextDate = FinanceOSCore.addRecurringDate(dueDate, frequency, anchorDay);
+      } catch(error) {
+        console.error('Could not advance recurring rule:', rule.id, error);
+        break;
+      }
     }
-    rule.nextDate = next.toISOString().split('T')[0];
-    changed = true;
+    if (processed >= 1200 && rule.nextDate && rule.nextDate <= today) catchupLimitReached = true;
   });
 
   if (changed) dbSave();
+  if (catchupLimitReached) showToast('A recurring rule has more than 1,200 missed cycles. Review it before continuing.', 'warn');
 }
 
 // ── Lease Renewal Alerts ──────────────────────────────────────────────────────
@@ -10480,7 +10505,7 @@ function showToast(msg, type='success') {
   t.style.border = `1px solid ${borders[type]||borders.success}`;
   t.style.color = textCols[type]||textCols.success;
   t.style.backdropFilter = 'blur(20px)';
-  t.innerHTML = msg;
+  t.textContent = String(msg);
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.style.opacity='0'; }, 3000);
@@ -10508,43 +10533,78 @@ document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('cl
 // All features read from here. Never hardcode income/savings elsewhere.
 
 function getMonthlyIncome() {
-  // FIX 1: Always use CURRENT CALENDAR MONTH — never derive from latest transaction date.
-  // Using latest-transaction-month caused income/expense period mismatch (e.g. Feb income vs Mar expenses).
-  const curMonth = new Date().toISOString().substring(0,7);
-  // SETTINGS.income is always the base monthly salary.
-  // Any income transactions that are NOT the synthetic salary entry count as extras (bonuses, side hustle).
-  // We also skip recurring-generated salary entries (source:'recurring' with salary-like descriptions).
-  const SALARY_DESCS = ['Monthly Salary', 'Salary', 'salary'];
+  const period = getFiscalPeriod();
+  const salaryDescriptions = ['Monthly Salary', 'Salary', 'salary'];
   const extraIncome = transactions
-    .filter(t =>
-      t.type === 'income' &&
-      t.date.startsWith(curMonth) &&
-      !SALARY_DESCS.some(d => t.desc === d) &&
-      !(t.source === 'recurring' && t.cat === 'income' && t.amount >= SETTINGS.income * 0.8)
+    .filter(tx =>
+      tx.type === 'income' &&
+      txInCurrentFiscalPeriod(tx) &&
+      !salaryDescriptions.some(description => tx.desc === description) &&
+      !(tx.source === 'recurring' && tx.cat === 'income' && tx.amount >= SETTINGS.income * 0.8)
     )
-    .reduce((s,t) => s + t.amount, 0);
-  return SETTINGS.income + extraIncome;
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  return (Number(SETTINGS.income) || 0) + extraIncome;
+}
+
+function getMonthlyExpenseSnapshot() {
+  const period = getFiscalPeriod();
+  const expenses = transactions.filter(tx =>
+    FinanceOSCore.isRealExpense(tx) &&
+    typeof tx.date === 'string' &&
+    txInCurrentFiscalPeriod(tx)
+  );
+
+  if (expenses.length) {
+    return {
+      amount: Math.abs(expenses.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0)),
+      estimated: false,
+      basis: 'current-fiscal-period-transactions',
+      period: period.start + ' to ' + period.end,
+      periodStart: period.start,
+      periodEnd: period.end,
+    };
+  }
+
+  const historicalPeriods = new Map();
+  transactions.filter(tx =>
+    FinanceOSCore.isRealExpense(tx) &&
+    typeof tx.date === 'string' &&
+    tx.date < period.start
+  ).forEach(tx => {
+    try {
+      const txDate = new Date(tx.date + 'T12:00:00');
+      const txPeriod = getFiscalPeriod(txDate);
+      if (txPeriod.end >= period.start) return;
+      const current = historicalPeriods.get(txPeriod.start) || { end: txPeriod.end, total: 0 };
+      current.total += Number(tx.amount) || 0;
+      historicalPeriods.set(txPeriod.start, current);
+    } catch(error) {}
+  });
+
+  const latest = [...historicalPeriods.entries()].sort((a, b) => b[0].localeCompare(a[0]))[0];
+  if (latest) {
+    return {
+      amount: Math.abs(latest[1].total),
+      estimated: true,
+      basis: 'most-recent-recorded-fiscal-period',
+      period: latest[0] + ' to ' + latest[1].end,
+      periodStart: latest[0],
+      periodEnd: latest[1].end,
+    };
+  }
+
+  return {
+    amount: Math.round(Math.max(0, Number(SETTINGS.income) || 0) * 0.6),
+    estimated: true,
+    basis: 'income-based-estimate',
+    period: null,
+    periodStart: null,
+    periodEnd: null,
+  };
 }
 
 function getMonthlyExpenses() {
-  // FIX 2: Exclude 'savings' and 'investment' category transactions — these are money TRANSFERS,
-  // not actual spending. Counting them as expenses inflates costs and deflates the surplus/freedom age.
-  const TRANSFER_CATS = ['savings', 'investment', 'sacco', 'umworo', 'momo'];
-  const isRealExpense = t => t.type === 'expense' && !TRANSFER_CATS.includes(t.cat);
-
-  // Always use current calendar month first
-  const curMonth = new Date().toISOString().substring(0,7);
-  const curExp = Math.abs(
-    transactions.filter(t => isRealExpense(t) && t.date.startsWith(curMonth))
-      .reduce((s,t) => s + t.amount, 0)
-  );
-  if (curExp > 0) return curExp;
-  // No expenses logged yet this month — fall back to most recent month with data
-  const sorted = [...transactions].filter(isRealExpense).sort((a,b)=>b.date.localeCompare(a.date));
-  if (!sorted.length) return Math.round(SETTINGS.income * 0.6);
-  const latestMonth = sorted[0].date.substring(0,7);
-  return Math.abs(sorted.filter(t=>t.date.startsWith(latestMonth)).reduce((s,t)=>s+t.amount,0))
-    || Math.round(SETTINGS.income * 0.6);
+  return getMonthlyExpenseSnapshot().amount;
 }
 
 // FIX: Emergency fund detection via asset type, not keyword.
@@ -10558,38 +10618,35 @@ function getEmergencyFundAsset() {
 
 function getStats() {
   const income = getMonthlyIncome();
-  const expenses = getMonthlyExpenses();
-  const totalAssets = assets.reduce((s,a)=>s+a.value,0);
-  // FIX 5: Same deduplication guard as getFpPortfolio — exclude Investment Portal entries
-  // whose name already exists in the Assets array, preventing double-counting in net worth.
-  const TRANSFER_CATS = ['savings','investment','sacco','umworo','momo'];
-  const invPortfolioExtra = (function() {
+  const expenseSnapshot = getMonthlyExpenseSnapshot();
+  const expenses = expenseSnapshot.amount;
+  const totalAssets = assets.reduce((sum, asset) => sum + Math.max(0, Number(asset.value) || 0), 0);
+  const investmentRows = (function() {
     try {
-      const invs = JSON.parse(localStorage.getItem('finOS_investments')||'[]');
-      const assetKeys = new Set(assets.map(a => (a.name||'').toLowerCase().trim()));
-      return invs
-        .filter(inv => !assetKeys.has((inv.name||'').toLowerCase().trim()))
-        .reduce((s,inv) => s + (inv.currentValue || inv.capital || 0), 0);
-    } catch(e) { return 0; }
+      const rows = JSON.parse(localStorage.getItem('finOS_investments') || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch(e) { return []; }
   }());
-  // Subtract tracked debts for true net worth
-  const totalDebt = (function() {
+  const debtRows = (function() {
     try {
-      const ds = JSON.parse(localStorage.getItem('fos_debts')||'[]');
-      return ds.reduce((s,d) => s + (d.balance || 0), 0);
-    } catch(e) { return 0; }
+      const rows = JSON.parse(localStorage.getItem('fos_debts') || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch(e) { return []; }
   }());
-  const netWorth = totalAssets + invPortfolioExtra - totalDebt;
-  const savingsRate = income>0 ? ((income-expenses)/income*100).toFixed(0) : 0;
+  const totalDebt = debtRows.reduce((sum, debt) => sum + Math.max(0, Number(debt.balance) || 0), 0);
+  const netWorth = FinanceOSCore.calculateNetWorth(assets, investmentRows, debtRows);
+  const monthlySurplus = typeof fpGetMonthlySaved === 'function' ? fpGetMonthlySaved() : income - expenses;
+  const savingsRate = income > 0 ? (monthlySurplus / income * 100).toFixed(0) : 0;
   // Always use actual current calendar month — never derive from latest transaction date
   const now = new Date();
-  const curMonth  = now.toISOString().substring(0,7);
-  const prevDate  = new Date(now.getFullYear(), now.getMonth()-1, 1);
-  const prevMonth = prevDate.toISOString().substring(0,7);
-  const thisMo = transactions.filter(t=>t.date.startsWith(curMonth));
-  const lastMo = transactions.filter(t=>t.date.startsWith(prevMonth));
+  const currentPeriod = getFiscalPeriod(now);
+  const previousPeriodAnchor = new Date(currentPeriod.start + 'T12:00:00');
+  previousPeriodAnchor.setDate(previousPeriodAnchor.getDate() - 1);
+  const previousPeriod = getFiscalPeriod(previousPeriodAnchor);
+  const thisMo = transactions.filter(tx => tx.date >= currentPeriod.start && tx.date <= currentPeriod.end);
+  const lastMo = transactions.filter(tx => tx.date >= previousPeriod.start && tx.date <= previousPeriod.end);
   // FIX 5b: Exclude savings/investment transfers from "Spent This Month" display — they are not spending
-  const isDisplayExpense = t => t.type==='expense' && !TRANSFER_CATS.includes(t.cat);
+  const isDisplayExpense = t => FinanceOSCore.isRealExpense(t);
   const thisMoExp = Math.abs(thisMo.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
   const lastMoExp = Math.abs(lastMo.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
 
@@ -10598,13 +10655,16 @@ function getStats() {
   // harvest months, umuganda) because it had no baseline to compare against.
   const LOOKBACK_MONTHS = 12;
   const monthlyHistory = [];
-  for (let i = 1; i <= LOOKBACK_MONTHS; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = d.toISOString().substring(0, 7);
-    const moTx = transactions.filter(t => t.date.startsWith(key));
-    const moExp = Math.abs(moTx.filter(isDisplayExpense).reduce((s,t)=>s+t.amount,0));
-    const moInc = moTx.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-    if (moExp > 0 || moInc > 0) monthlyHistory.push({ month: key, expenses: moExp, income: moInc });
+  let historicalAnchor = new Date(currentPeriod.start + 'T12:00:00');
+  historicalAnchor.setDate(historicalAnchor.getDate() - 1);
+  for (let i = 0; i < LOOKBACK_MONTHS; i++) {
+    const period = getFiscalPeriod(historicalAnchor);
+    const periodTx = transactions.filter(tx => tx.date >= period.start && tx.date <= period.end);
+    const periodExpenses = Math.abs(periodTx.filter(isDisplayExpense).reduce((sum, tx) => sum + tx.amount, 0));
+    const periodIncome = periodTx.filter(tx => tx.type === 'income').reduce((sum, tx) => sum + tx.amount, 0);
+    if (periodExpenses > 0 || periodIncome > 0) monthlyHistory.push({ month: period.start, expenses: periodExpenses, income: periodIncome });
+    historicalAnchor = new Date(period.start + 'T12:00:00');
+    historicalAnchor.setDate(historicalAnchor.getDate() - 1);
   }
   // Rolling 6-month average — more stable baseline than single prior month
   const rolling6 = monthlyHistory.slice(0, 6);
@@ -10629,19 +10689,19 @@ function getStats() {
     11: { label: 'End-of-year social spending', categories: ['entertainment','shopping'] },
     12: { label: 'Year-end celebrations', categories: ['entertainment','shopping','family'] },
   };
-  const currentMonthNum = now.getMonth() + 1; // 1-indexed
+  const currentMonthNum = new Date(currentPeriod.start + 'T12:00:00').getMonth() + 1; // fiscal-period start month
   const seasonalContext = RWANDA_HIGH_SPEND_MONTHS[currentMonthNum] || null;
 
   // catBreakdown: current month only so pct correctly reflects this month's spend share
   // FIX 8: Exclude savings/investment transfers from spending category breakdown
   const catMap = {};
-  transactions.filter(t=>t.type==='expense' && !TRANSFER_CATS.includes(t.cat) && t.date.startsWith(curMonth))
+  transactions.filter(t=>isDisplayExpense(t) && typeof t.date === 'string' && t.date >= currentPeriod.start && t.date <= currentPeriod.end)
     .forEach(t=>{ catMap[t.cat]=(catMap[t.cat]||0)+Math.abs(t.amount); });
   const catBreakdown = Object.entries(catMap).map(([cat,val])=>({
     cat, val, label:CATS[cat]?.label||cat, color:CATS[cat]?.color||'#666', icon:CATS[cat]?.icon||'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
     pct:thisMoExp>0?(val/thisMoExp*100).toFixed(0):0
   })).sort((a,b)=>b.val-a.val);
-  return { income, expenses, netWorth, savingsRate, thisMoExp, lastMoExp, expTrend, expTrendVsLastMonth, catBreakdown, totalAssets, monthlyHistory, rollingAvgExp, seasonalContext };
+  return { income, expenses, monthlySurplus, expensesEstimated: expenseSnapshot.estimated, expenseEstimateBasis: expenseSnapshot.basis, netWorth, savingsRate, thisMoExp, lastMoExp, expTrend, expTrendVsLastMonth, catBreakdown, totalAssets, totalDebt, monthlyHistory, rollingAvgExp, seasonalContext };
 }
 
 // The one function every feature uses to calculate freedom age
@@ -10861,20 +10921,13 @@ function initSimpleMode() {
 
 function getNetWorth() {
   try {
-    // Sum assets — SMS-verified cash assets already reflect ground-truth balance
-    const assetTotal = (typeof assets !== 'undefined' ? assets : [])
-      .reduce((s, a) => s + (parseFloat(a.value) || 0), 0);
-
-    // If no SMS balance has been confirmed, add monthly cash surplus as estimate
-    const hasSmsBalance = SETTINGS.smsConfirmedBalance && SETTINGS.smsConfirmedBalance > 0;
-    if (!hasSmsBalance) {
-      const income   = typeof getMonthlyIncome   === 'function' ? getMonthlyIncome()   : 0;
-      const expenses = typeof getMonthlyExpenses  === 'function' ? getMonthlyExpenses() : 0;
-      return assetTotal + Math.max(0, income - expenses);
-    }
-    // SMS balance is ground truth — assets already include the verified cash asset,
-    // so we just return the asset total (which already incorporates the real balance).
-    return assetTotal;
+    const investmentRows = JSON.parse(localStorage.getItem('finOS_investments') || '[]');
+    const debtRows = JSON.parse(localStorage.getItem('fos_debts') || '[]');
+    return FinanceOSCore.calculateNetWorth(
+      typeof assets !== 'undefined' ? assets : [],
+      Array.isArray(investmentRows) ? investmentRows : [],
+      Array.isArray(debtRows) ? debtRows : []
+    );
   } catch(e) { return 0; }
 }
 
@@ -11167,7 +11220,7 @@ function renderDashboard() {
   const income  = getMonthlyIncome();
   const target  = SETTINGS.savingsTarget;
   const budget  = Math.round(income * (1 - target / 100));
-  const surplus = Math.max(0, income - s.thisMoExp);
+  const surplus = s.monthlySurplus;
   const left    = budget - s.thisMoExp;
   const sr      = parseInt(s.savingsRate);
   const now     = new Date();
@@ -11192,7 +11245,7 @@ function renderDashboard() {
   // Focus bar
   const _focusEl = document.getElementById('focusText');
   if (_focusEl) _focusEl.innerHTML =
-    'Spent <strong style="color:var(--gold)">' + fmt(s.thisMoExp,hideNums) + '</strong> this month. ' +
+    'Spent <strong style="color:var(--gold)">' + fmt(s.thisMoExp,hideNums) + '</strong> in this pay period. ' +
     'Budget left: <strong style="color:' + (left>=0?'var(--green)':'var(--red)') + ';">' + fmt(Math.abs(left),hideNums) + '</strong>. ' +
     (left >= 0 ? 'Stay disciplined.' : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Over budget — cut spending now.');
 
@@ -11205,8 +11258,12 @@ function renderDashboard() {
   if (inEl) inEl.textContent = fmt(s.income, hideNums);
   if (spEl) spEl.textContent = fmt(s.thisMoExp, hideNums);
   if (suEl) { suEl.textContent = fmt(surplus, hideNums); suEl.style.color = surplus > 0 ? 'var(--green)' : 'var(--red)'; }
+  const surplusSubEl = document.getElementById('surplusSub');
+  if (surplusSubEl) surplusSubEl.textContent = s.expensesEstimated
+    ? 'Estimated expense basis; unrecorded bills are deducted'
+    : 'Recorded expenses less unrecorded bills';
   const stEl = document.getElementById('surplusTrend');
-  if (stEl) { stEl.textContent = sr + '% savings rate'; stEl.className = 'trend ' + (sr >= target ? 'up' : 'down'); }
+  if (stEl) { stEl.textContent = sr + '% savings rate' + (s.expensesEstimated ? ' · estimated expenses' : ''); stEl.className = 'trend ' + (sr >= target ? 'up' : 'down'); stEl.title = s.expensesEstimated ? 'Expense basis: ' + s.expenseEstimateBasis + (getMonthlyExpenseSnapshot().period ? ' (' + getMonthlyExpenseSnapshot().period + ')' : '') : 'Based on recorded expenses in the current fiscal period'; }
   // NEXUS: Show SMS-verified balance badge if ground truth is active
   const nwBadgeEl = document.getElementById('smsVerifiedBadge');
   if (nwBadgeEl) {
@@ -11233,7 +11290,7 @@ function renderDashboard() {
       const curr = s.netWorth;
       const diff = curr - prev;
       const pct  = prev !== 0 ? ((diff / Math.abs(prev)) * 100).toFixed(1) : 0;
-      nwTrendEl.textContent = (diff >= 0 ? '▲ +' : '▼ ') + fmt(diff, false) + ' (' + pct + '%) vs last month';
+      nwTrendEl.textContent = (diff >= 0 ? '▲ +' : '▼ ') + fmt(diff, false) + ' (' + pct + '%) vs prior period';
       nwTrendEl.className   = 'trend ' + (diff >= 0 ? 'up' : 'down');
     } else {
       nwTrendEl.textContent = '→ Tracking — more data next month';
@@ -11251,7 +11308,7 @@ function renderDashboard() {
   // Expense trend
   const trendEl = document.getElementById('expTrend');
   const trend   = parseInt(s.expTrend);
-  if (trendEl) { trendEl.textContent = (trend >= 0 ? '↑ ' : '↓ ') + Math.abs(trend) + '% vs last month'; trendEl.className = 'trend ' + (trend > 0 ? 'down' : 'up'); }
+  if (trendEl) { trendEl.textContent = (trend >= 0 ? '↑ ' : '↓ ') + Math.abs(trend) + '% vs prior period'; trendEl.className = 'trend ' + (trend > 0 ? 'down' : 'up'); }
 
   // ROW 2 KPI cards — Savings rate
   const srvEl = document.getElementById('savingsRateVal');
@@ -11262,15 +11319,17 @@ function renderDashboard() {
   if (sbrEl) { sbrEl.style.width = Math.min(100, Math.round(sr / (target * 1.5) * 100)) + '%'; sbrEl.style.background = sr >= target ? 'var(--green)' : sr >= target * 0.7 ? 'var(--gold)' : 'var(--red)'; }
 
   // Days left + daily budget
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const daysLeft    = daysInMonth - now.getDate();
+  const currentFiscalPeriod = getFiscalPeriod(now);
+  const fiscalPeriodEnd = new Date(currentFiscalPeriod.end + 'T12:00:00');
+  const todayLocal = new Date(FinanceOSCore.localDateISO(now) + 'T12:00:00');
+  const daysLeft = Math.max(0, Math.round((fiscalPeriodEnd - todayLocal) / 86400000));
   const dailyBudget = daysLeft > 0 ? Math.round(Math.max(0, left) / daysLeft) : 0;
   const dlvEl = document.getElementById('daysLeftVal');
   const dbsEl = document.getElementById('dailyBudgetSub');
   const dltEl = document.getElementById('daysLeftTrend');
   if (dlvEl) dlvEl.textContent = daysLeft + ' days';
   if (dbsEl) dbsEl.textContent = fmt(dailyBudget, hideNums) + '/day available';
-  if (dltEl) { dltEl.innerHTML = daysLeft <= 5 ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Month ending soon' : '→ On track'; dltEl.className = 'trend ' + (daysLeft <= 5 ? 'warn' : 'neutral'); }
+  if (dltEl) { dltEl.innerHTML = daysLeft <= 5 ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Pay period ending soon' : '→ On track'; dltEl.className = 'trend ' + (daysLeft <= 5 ? 'warn' : 'neutral'); }
 
   // Budget remaining
   const blvEl = document.getElementById('budgetLeftVal');
@@ -11678,6 +11737,8 @@ function renderTransactions() {
   const _txListEl = document.getElementById('txList');
   if (_txListEl) _txListEl.innerHTML = (_filtered.length ? _filtered : sorted).map(t=>{
     const cat = CATS[t.cat]||CATS.other;
+    const txIdArg = safeJsArg(t.id);
+    const txDomId = safeDomId(t.id);
     const _dateLabel = t.date===_todayKey
       ? '<span class="v42-date-today">Today</span>'
       : t.date===_yesterKey
@@ -11685,12 +11746,12 @@ function renderTransactions() {
         : sanitize(t.date);
     const _noteTag = t.note ? `<span style="font-size:9px;color:var(--textdim);margin-left:5px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:4px;padding:1px 5px;" title="${sanitize(t.note)}">📝</span>` : '';
     return `<div class="tx-row" style="--tx-color:${cat.color};">
-      <div class="tx-cat-icon" style="background:${cat.color}22;">${cat.icon}</div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></button><div class="row-menu" id="km-tx-${t.id}"><button class="row-menu-item" onclick="openEditTx(${t.id});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button><button class="row-menu-item danger" onclick="deleteTx(${t.id});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete</button></div></div>
+      <div class="tx-cat-icon" style="background:${cat.color}22;">${cat.icon}</div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></button><div class="row-menu" id="km-tx-${txDomId}"><button class="row-menu-item" onclick="openEditTx(${txIdArg});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button><button class="row-menu-item danger" onclick="deleteTx(${txIdArg});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete</button></div></div>
     </div>`;
   }).join(_filtered.length===0&&_v43q ? '' : '');
   if (_filtered.length === 0 && _v43q) {
     const _tl2 = document.getElementById('txList');
-    if (_tl2) _tl2.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results for "'+_v43q+'"</div><div class="empty-state-sub">Try a different keyword, date, or amount</div></div>';
+    if (_tl2) _tl2.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results for "'+sanitize(_v43q)+'"</div><div class="empty-state-sub">Try a different keyword, date, or amount</div></div>';
   }
 }
 
@@ -11834,7 +11895,7 @@ function renderAssets() {
   // KPI stats row
   const _assetStatsEl = document.getElementById('assetStats');
   if (_assetStatsEl) _assetStatsEl.innerHTML = [
-    { label:'Total Net Worth', val:fmt(total,hideNums), color:'var(--gold)', icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', sub:'All assets combined', glow:true },
+    { label:'Total Assets', val:fmt(total,hideNums), color:'var(--gold)', icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', sub:'Assets tracked before debts', glow:true },
     { label:'Cash & Savings',  val:fmt(cash,hideNums),  color:'var(--green)',icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', sub:Math.round(cash/total*100||0)+'% of portfolio' },
     { label:'Invested',        val:fmt(invested,hideNums),color:'var(--blue)',icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>', sub:Math.round(invested/total*100||0)+'% of portfolio' },
     { label:'Total Gain / P&L',val:fmt(gainTotal,hideNums),color:gainTotal>=0?'var(--green)':'var(--red)',icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>', sub:'vs purchase price' },
@@ -11857,14 +11918,16 @@ function renderAssets() {
     const gain = cost > 0 ? a.value - cost : null;
     const gainPct = cost > 0 ? ((a.value - cost)/cost*100).toFixed(1) : null;
     const gainColor = gain >= 0 ? 'var(--green)' : 'var(--red)';
-    return `<div class="card" style="border-left:3px solid ${cfg.color};position:relative;overflow:visible;cursor:pointer;" onclick="openAssetIntelligence(${a.id})" title="Click for full analysis">
+    const assetIdArg = safeJsArg(a.id);
+    const assetDomId = safeDomId(a.id);
+    return `<div class="card" style="border-left:3px solid ${cfg.color};position:relative;overflow:visible;cursor:pointer;" onclick="openAssetIntelligence(${assetIdArg})" title="Click for full analysis">
       <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;">
         <div style="width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;background:${cfg.color}18;flex-shrink:0;">${cfg.icon}</div>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(a.name)}</div>
           <div style="font-size:11px;color:var(--textdim);">${cfg.label} · ${pct}% of portfolio</div>
         </div>
-        <div class="row-menu-wrap"><button class="row-kebab" onclick="event.stopPropagation();toggleRowMenu('km-asset-${a.id}')" title="Actions"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></button><div class="row-menu" id="km-asset-${a.id}"><button class="row-menu-item" onclick="openEditAsset(${a.id});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button><button class="row-menu-item danger" onclick="deleteAsset(${a.id});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete</button></div>
+        <div class="row-menu-wrap"><button class="row-kebab" onclick="event.stopPropagation();toggleRowMenu('km-asset-${assetDomId}')" title="Actions"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></button><div class="row-menu" id="km-asset-${assetDomId}"><button class="row-menu-item" onclick="openEditAsset(${assetIdArg});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button><button class="row-menu-item danger" onclick="deleteAsset(${assetIdArg});closeRowMenu()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Delete</button></div>
         </div>
       </div>
       <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px;">${hideNums ? '••••' : fmt(a.value, false)}</div>
@@ -12027,7 +12090,7 @@ function renderAssetGrowthChart() {
     const growth = total - first;
     const pct = ((total - first)/first*100).toFixed(1);
     const noteEl = document.getElementById('growthNote');
-    if (noteEl) noteEl.innerHTML = `<span style="color:${growth>=0?'var(--green)':'var(--red)'};">${growth>=0?'▲':'▼'} ${fmt(Math.abs(growth),false)} (${pct}%)</span> since ${assetGrowthHistory[0].label}`;
+    if (noteEl) noteEl.innerHTML = `<span style="color:${growth>=0?'var(--green)':'var(--red)'};">${growth>=0?'▲':'▼'} ${fmt(Math.abs(growth),false)} (${pct}%)</span> since ${sanitize(assetGrowthHistory[0].label)}`;
   }
 }
 
@@ -12118,7 +12181,9 @@ function saveAsset() {
   const editId      = document.getElementById('assetEditId').value;
   const acquisition = document.getElementById('assetAcquisition')?.value || 'purchased';
   const acqDateRaw  = document.getElementById('assetAcquisitionDate')?.value || '';
-  if (!name || !value) return;
+  if (!name) { showToast('Enter an asset name', 'warn'); return; }
+  if (!Number.isFinite(value) || value <= 0) { showToast('Asset value must be a finite amount greater than zero', 'warn'); return; }
+  if (!Number.isFinite(cost) || cost < 0) { showToast('Asset cost cannot be negative or invalid', 'warn'); return; }
   const now     = new Date().toISOString();
   const acqDate = acqDateRaw || now.slice(0, 10);
   const txCat   = ASSET_CAT_MAP[type] || 'other';
@@ -13423,7 +13488,7 @@ async function runWeeklyReview() {
 
   try {
     const prompt = await AutomationEngine.runWeeklyReview();
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await financeOSAIRequest( {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -13952,6 +14017,7 @@ Investments, budgeting, savings acceleration, side income, debt elimination, rea
 }
 
 function formatAIResponse(text) {
+  text = sanitize(String(text || ''));
   // Bold
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Bullets — wrap content, not the marker
@@ -14042,7 +14108,7 @@ function addChatMsg(role, content, followUps) {
   const initials   = (SETTINGS.name?.[0] || 'U').toUpperCase();
   const avatarHTML = isAssistant
     ? `<div class="msg-avatar">${SVG_BOT}</div>`
-    : `<div class="msg-avatar" style="font-size:11px;font-weight:700;color:var(--green);">${initials}</div>`;
+    : `<div class="msg-avatar" style="font-size:11px;font-weight:700;color:var(--green);">${sanitize(initials)}</div>`;
 
   const roleTag = `<div class="msg-role">${SVG_BOLT}Advisor</div>`;
 
@@ -14056,7 +14122,7 @@ function addChatMsg(role, content, followUps) {
     const formatted = isAssistant ? formatAIResponse(content) : `<p style="margin:0;">${sanitize(content)}</p>`;
     const followUpHTML = followUps && followUps.length
       ? `<div class="ai-followups">${followUps.map(f =>
-          `<button class="ai-followup-btn" onclick="advSend('${sanitize(f).replace(/'/g,"&#39;")}')">
+          `<button class="ai-followup-btn" onclick="advSend(${safeJsArg(f)})">
             ${SVG_ARR} ${sanitize(f)}
           </button>`
         ).join('')}</div>`
@@ -14128,7 +14194,7 @@ async function sendChat() {
   const typingWrap = addChatMsg('assistant', '__typing__');
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await financeOSAIRequest( {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -14538,7 +14604,7 @@ async function runBankAnalysis() {
   const prompt = 'Analyze this bank statement for a user in Rwanda. Currency: ' + SETTINGS.currency + '.\n\nReturn ONLY valid JSON with these exact keys:\n{\n  "period": "string",\n  "totalIncome": number,\n  "totalExpenses": number,\n  "savingsRate": number,\n  "net": number,\n  "categories": [{"name":"string","amount":number,"pct":number,"emoji":"string"}],\n  "waste": [{"title":"string","amount":number,"reason":"string","fix":"string"}],\n  "actions": [{"emoji":"string","title":"string","detail":"string","impact":"string"}],\n  "verdict": "string",\n  "score": number,\n  "faithIssues": [{"title":"string","detail":"string","severity":"warning|critical"}]\n}\n\nRules: categories top 6 by amount, waste 3-5 items, actions exactly 3, score 1-10.' + faithLine + '\n\nStatement:\n' + text.slice(0, 3000);
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await financeOSAIRequest( {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1200, messages: [{ role: 'user', content: prompt }] })
@@ -14991,34 +15057,25 @@ function fpProject(months, route, savings, monthly) {
 }
 
 function fpGetMonthlySaved() {
-  const inc = getMonthlyIncome();
-  const exp = getMonthlyExpenses();
-  // FIX 4: Subscriptions and debt payments live in separate modules and are NOT automatically
-  // added to the transactions array. If we ignore them, monthly savings is OVERSTATED,
-  // making freedom age appear unrealistically close.
-  const subCost = (function() {
-    try {
-      const subs = JSON.parse(localStorage.getItem('fos_subs')||'[]');
-      return subs.filter(s=>s.status==='active').reduce((sum,s)=>sum+subMonthlyAmount(s),0);
-    } catch(e){ return 0; }
-  }());
-  const debtPayments = (function() {
-    try {
-      const ds = JSON.parse(localStorage.getItem('fos_debts')||'[]');
-      return ds.reduce((s,d)=>s+(d.monthly||0),0);
-    } catch(e){ return 0; }
-  }());
-  // Only add sub/debt costs that aren't already tracked as transactions
-  // (if user has them as recurring transactions, avoid double-counting)
-  const alreadyInTx = exp; // transactions already capture manually-logged subs/debts
-  // Conservative: only add external modules if they exceed what's in transactions
-  // We add the NET delta to ensure real obligations aren't missed
-  const txBasedSubs = transactions
-    .filter(t=>t.type==='expense' && t.cat==='other' && t.date.startsWith(new Date().toISOString().substring(0,7)))
-    .reduce((s,t)=>s+Math.abs(t.amount),0);
-  const uncapturedSubs  = Math.max(0, subCost   - 0); // Always include: subs rarely logged as transactions
-  const uncapturedDebt  = Math.max(0, debtPayments - 0); // Always include: debt payments rarely logged as transactions
-  return Math.max(0, inc - exp - uncapturedSubs - uncapturedDebt);
+  let subscriptions = [], debtRows = [];
+  try {
+    const rows = JSON.parse(localStorage.getItem('fos_subs') || '[]');
+    if (Array.isArray(rows)) subscriptions = rows;
+  } catch(e) {}
+  try {
+    const rows = JSON.parse(localStorage.getItem('fos_debts') || '[]');
+    if (Array.isArray(rows)) debtRows = rows;
+  } catch(e) {}
+  const expenseSnapshot = getMonthlyExpenseSnapshot();
+  return FinanceOSCore.calculateMonthlySavings({
+    income: getMonthlyIncome(),
+    expenses: getMonthlyExpenses(),
+    transactions: transactions,
+    subscriptions: subscriptions,
+    debts: debtRows,
+    periodStart: expenseSnapshot.periodStart || getFiscalPeriod().start,
+    periodEnd: expenseSnapshot.periodEnd || getFiscalPeriod().end,
+  });
 }
 
 function fpRenderRoutes() {
@@ -15604,7 +15661,7 @@ async function fpAiReroute(income, expenses, savings, diff) {
   const result = document.getElementById('fpAiResult');
   result.innerHTML = '<span class="spin-gps">⟳</span> GPS recalculating... AI rewriting your path...';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await financeOSAIRequest({
       method:'POST',
       headers: aiHeaders(),
       body:JSON.stringify({
@@ -16618,12 +16675,12 @@ function renderSmsPage() {
     } else {
       logEl.innerHTML = NEXUS._activityLog.map(entry => {
         const bankBadges = entry.banks.map(b =>
-          `<span style="display:inline-block;padding:1px 6px;background:rgba(212,168,67,.08);border:1px solid rgba(212,168,67,.2);border-radius:20px;font-size:10px;color:var(--gold);margin-right:3px;">${b}</span>`
+          `<span style="display:inline-block;padding:1px 6px;background:rgba(212,168,67,.08);border:1px solid rgba(212,168,67,.2);border-radius:20px;font-size:10px;color:var(--gold);margin-right:3px;">${sanitize(b)}</span>`
         ).join('');
         const balStr = entry.balance ? ` · Balance: <strong style="color:var(--green)">${fmtN(entry.balance)} ${SETTINGS.currency}</strong>` : '';
         return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:flex-start;gap:8px;">
-          <span style="color:var(--textdim);flex-shrink:0;">${entry.time}</span>
-          <div>${entry.msg}${balStr}<br>${bankBadges}</div>
+          <span style="color:var(--textdim);flex-shrink:0;">${sanitize(entry.time)}</span>
+          <div>${sanitize(entry.msg)}${balStr}<br>${bankBadges}</div>
         </div>`;
       }).join('');
     }
@@ -16638,7 +16695,7 @@ function renderSmsPage() {
     const color = topAlert.level === 'critical' ? 'var(--red)' : 'var(--gold)';
     bannerEl.style.borderColor = topAlert.level === 'critical' ? 'rgba(248,113,113,.3)' : 'rgba(212,168,67,.3)';
     bannerEl.style.background = topAlert.level === 'critical' ? 'rgba(248,113,113,.05)' : 'rgba(212,168,67,.05)';
-    bannerEl.innerHTML = `<span style="font-weight:700;color:${color}">${topAlert.icon} NEXUS Alert</span> — ${topAlert.msg}` +
+    bannerEl.innerHTML = `<span style="font-weight:700;color:${color}">${sanitize(topAlert.icon)} NEXUS Alert</span> — ${sanitize(topAlert.msg)}` +
       (brain.alerts.length > 1 ? ` <span style="color:var(--textdim)">+${brain.alerts.length-1} more</span>` : '');
   } else if (bannerEl) {
     bannerEl.style.display = 'none';
@@ -16776,7 +16833,7 @@ async function nexusAiParse(text) {
   if (previewEl) previewEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--textdim);font-size:13px;">🤖 NEXUS is asking Claude to parse this SMS format…</div>';
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await financeOSAIRequest( {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -16962,7 +17019,7 @@ function nexusExtractDate(smsText) {
     if (previewEl) previewEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--textdim);font-size:13px;">🤖 NEXUS is asking Claude to parse this message…</div>';
 
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      const resp = await financeOSAIRequest( {
         method: 'POST',
         headers: aiHeaders(),
         body: JSON.stringify({
@@ -17304,7 +17361,7 @@ async function runLeakHunter() {
   const { newFreedomAge } = leakFreedomImpact(totalLeak);
   const leakSummary = leaks.map(l=>`${l.label}: ${fpFmt(l.actual)}/mo (excess ${fpFmt(l.excess)})`).join(', ');
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await financeOSAIRequest({
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:400,
         messages:[{role:'user',content:`Financial leak analysis. Age ${fpGetAgeNow()}, currency: ${SETTINGS.currency}. Income: ${fpFmt(getMonthlyIncome())}/mo. Computed freedom age: ${fpGetCurrentFreedomAge()} → fixing leaks moves to Age ${newFreedomAge}.
@@ -17398,7 +17455,7 @@ async function runSimulator() {
   box.textContent = '⟳ Calculating true cost on your freedom path…';
   box.style.color = 'var(--textmid)';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await financeOSAIRequest({
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:500,
         messages:[{role:'user',content:`Decision engine. Age ${ageNow}, currency: ${SETTINGS.currency}. Freedom target: Age ${freedomAge} (${fpFmt(SETTINGS.freedomNumber)}). Monthly savings: ~${fpFmt(monthlySaved)}.
@@ -17448,7 +17505,7 @@ async function runIncomeScanner() {
   box.textContent = '⟳ Scanning income opportunities for your profile…';
   box.style.color = 'var(--textmid)';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const res = await financeOSAIRequest({
       method:'POST', headers: aiHeaders(),
       body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:600,
         messages:[{role:'user',content:`Income scanner. Age ${ageNow}, currency: ${SETTINGS.currency}. Current income: ${fpFmt(income)}/mo (1 stream). Freedom target: Age ${base} (${fpFmt(SETTINGS.freedomNumber)} net worth).
@@ -18226,10 +18283,19 @@ function handleImport(event) {
     try {
       // Parse first to validate before saving
       const parsed = JSON.parse(e.target.result);
-      if (typeof parsed !== 'object' || parsed === null) throw new Error('Invalid backup format');
+      FinanceOSCore.validateBackup(parsed);
+      if (parsed.settings) {
+        const safeSettings = {};
+        Object.keys(SETTINGS).forEach(key => {
+          if (key !== 'aiKey' && key !== '__proto__' && key !== 'constructor' && key !== 'prototype' && Object.prototype.hasOwnProperty.call(parsed.settings, key)) {
+            safeSettings[key] = parsed.settings[key];
+          }
+        });
+        parsed.settings = safeSettings;
+      }
 
-      // Save to DB (re-encrypts with current session key)
-      DB.save(parsed);
+      // A validated import is the only operation allowed to replace an unreadable vault record.
+      if (!DB.save(parsed, { force: true })) throw new Error('Could not safely save this backup. Existing data was left unchanged.');
 
       // Restore all in-memory state from parsed data
       if (parsed.settings)     Object.assign(SETTINGS, parsed.settings);
@@ -20540,12 +20606,12 @@ function renderAnalytics() {
   const fromEl = document.getElementById('analyticsFrom');
   const toEl   = document.getElementById('analyticsTo');
   const now    = new Date();
-  const from   = fromEl?.value || now.toISOString().substring(0,7)+'-01';
-  const to     = toEl?.value   || now.toISOString().split('T')[0];
+  const from   = fromEl?.value || FinanceOSCore.localMonthISO(now)+'-01';
+  const to     = toEl?.value   || FinanceOSCore.localDateISO(now);
 
   const inRange = transactions.filter(t => t.date >= from && t.date <= to);
   const income  = inRange.filter(t=>t.type==='income').reduce((s,t)=>s+Math.abs(t.amount),0);
-  const expense = inRange.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
+  const expense = inRange.filter(t=>FinanceOSCore.isRealExpense(t)).reduce((s,t)=>s+Math.abs(t.amount),0);
   const savings = income - expense;
   const sr      = income > 0 ? Math.round(savings/income*100) : 0;
 
@@ -20565,7 +20631,7 @@ function renderAnalytics() {
   // Category bars
   const catEl = document.getElementById('analyticsCatBars');
   if (catEl) {
-    const expenses = inRange.filter(t=>t.type==='expense');
+    const expenses = inRange.filter(t=>FinanceOSCore.isRealExpense(t));
     const catMap = {};
     expenses.forEach(t => { catMap[t.cat] = (catMap[t.cat]||0)+Math.abs(t.amount); });
     const total = Object.values(catMap).reduce((a,b)=>a+b,0)||1;
@@ -20586,11 +20652,15 @@ function renderAnalytics() {
   const compEl = document.getElementById('analyticsPeriodComp');
   if (compEl) {
     const days = Math.max(1, Math.round((new Date(to)-new Date(from))/86400000));
-    const priorTo   = new Date(new Date(from)-86400000).toISOString().split('T')[0];
-    const priorFrom = new Date(new Date(from)-(days+1)*86400000).toISOString().split('T')[0];
+    const priorToDate = new Date(from + 'T12:00:00');
+    priorToDate.setDate(priorToDate.getDate() - 1);
+    const priorFromDate = new Date(priorToDate);
+    priorFromDate.setDate(priorFromDate.getDate() - days);
+    const priorTo = FinanceOSCore.localDateISO(priorToDate);
+    const priorFrom = FinanceOSCore.localDateISO(priorFromDate);
     const prior = transactions.filter(t=>t.date>=priorFrom&&t.date<=priorTo);
     const priorInc = prior.filter(t=>t.type==='income').reduce((s,t)=>s+Math.abs(t.amount),0);
-    const priorExp = prior.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
+    const priorExp = prior.filter(t=>FinanceOSCore.isRealExpense(t)).reduce((s,t)=>s+Math.abs(t.amount),0);
     const rows = [
       { label:'Income',   cur:income,  prev:priorInc, better:'up' },
       { label:'Expenses', cur:expense, prev:priorExp, better:'down' },
@@ -21458,6 +21528,7 @@ function getBizFinancialContext() {
   const efAsset = getEmergencyFundAsset();
   const efVal = efAsset?.value || 0;
   const efTarget = s.expenses * 3;
+  const businessMetrics = FinanceOSCore.calculateBusinessMetrics({ assets, expenses: s.expenses, monthlyDebtPayments, income: s.income, emergencyFundTarget: efTarget });
   const efMonths = efTarget > 0 ? (efVal / (efTarget / 3)).toFixed(1) : '0';
 
   // Subscriptions
@@ -21492,7 +21563,10 @@ function getBizFinancialContext() {
     totalDebt,
     monthlyDebtPayments,
     debtCount: debtsArr.length,
-    debtToIncome: s.income > 0 ? Math.round(totalDebt / (s.income * 12) * 100) : 0,
+    debtToIncome: Math.round(businessMetrics.debtToIncome),
+    liquidSavings: businessMetrics.liquidSavings,
+    availableLiquidCapital: businessMetrics.availableLiquidCapital,
+    runwayMonths: businessMetrics.runwayMonths,
 
     // Emergency fund
     efVal, efTarget, efMonths: parseFloat(efMonths),
@@ -21524,7 +21598,7 @@ function calcBizReadiness(ctx, bizStartup) {
   const canFundScore = (() => {
     // FIX 6: ctx.netWorth already has debt SUBTRACTED. Do NOT subtract totalDebt again.
     // Old code: ctx.netWorth - ctx.totalDebt - ctx.efTarget (debt counted twice = wrong score)
-    const available = Math.max(0, ctx.netWorth - ctx.efTarget);
+    const available = Math.max(0, ctx.availableLiquidCapital || 0);
     if (startup === 0) return 80;
     const ratio = available / startup;
     if (ratio >= 2)   return 100;
@@ -21556,11 +21630,12 @@ function calcBizReadiness(ctx, bizStartup) {
 
   // 4. Monthly Runway (15%) — if biz fails, how long can they survive on savings?
   const runwayScore = (() => {
-    const months = ctx.expenses > 0 ? ctx.monthlySaved / ctx.expenses : 0;
-    if (months >= 0.3) return 100;
-    if (months >= 0.15) return 70;
-    if (months >= 0.05) return 40;
-    return 15;
+    const months = ctx.runwayMonths || 0;
+    if (months >= 6) return 100;
+    if (months >= 3) return 75;
+    if (months >= 1) return 50;
+    if (months > 0) return 20;
+    return 5;
   })();
 
   // 5. Savings Rate (10%) — discipline signal
@@ -21732,7 +21807,7 @@ async function runBizAnalysis() {
   const paybackMonths    = bizNetProfit > 0 ? Math.ceil(startup / bizNetProfit) : 999;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await financeOSAIRequest( {
       method: 'POST',
       headers: aiHeaders(),
       body: JSON.stringify({
@@ -22050,9 +22125,7 @@ function obNext() {
 
 // ── SOCIAL AUTH ──────────────────────────────────────────────
 function uflSocialAuth(provider) {
-  // Simulate social auth — in production this would OAuth redirect
-  // For now: treat as quick-signup with provider name
-  uflLaunchApp({ name: '', age: 25, income: 0, currency: 'USD', social: provider });
+  showToast((provider || 'Social') + ' sign-in is not connected. Use the local FinanceOS profile instead.', 'warn');
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -22237,41 +22310,19 @@ async function uflLogin() {
 
 // ── FORGOT PASSWORD [v40 — clarifies local-only limitation] ─
 function uflForgotSend() {
-  const email = document.getElementById('fp-email')?.value.trim();
   const errEl = document.getElementById('fp-err');
-  if (!email || !email.includes('@')) { errEl.textContent = 'Please enter a valid email address.'; return; }
-
-  const stored = AUTH.get();
-  errEl.style.color = 'var(--green)';
-  if (stored && stored.email === email.toLowerCase().trim()) {
-    // Correct email — show reset form
-    errEl.innerHTML = '✅ Email matched. Set your new password below.';
-    setTimeout(() => { errEl.style.color=''; errEl.textContent=''; uflGoTo('ufl-reset'); }, 1800);
-  } else {
-    // Email not found — don't reveal whether account exists (prevent enumeration)
-    errEl.innerHTML = '✅ If that email is registered, you can reset your password below.';
-    setTimeout(() => { errEl.style.color=''; errEl.textContent=''; uflGoTo('ufl-reset'); }, 1800);
-  }
+  if (!errEl) return;
+  errEl.style.color = 'var(--gold)';
+  errEl.textContent = 'Email recovery is not connected. This FinanceOS profile exists only on this device, so no reset email was sent. Use your saved backup if you need to restore your data.';
 }
 
 // ── RESET PASSWORD [v40 — actually updates stored hash] ─────
 async function uflResetPassword() {
-  const newPwd  = document.getElementById('rp-new')?.value;
-  const confirm = document.getElementById('rp-confirm')?.value;
-  const errEl   = document.getElementById('rp-err');
-
-  if (!newPwd || newPwd.length < 8)  { errEl.textContent = 'New password must be at least 8 characters.'; return; }
-  if (newPwd !== confirm)            { errEl.textContent = 'Passwords do not match.'; return; }
-
-  errEl.textContent = '';
-  const stored = AUTH.get();
-  if (stored) {
-    await AUTH.update(newPwd); // re-hash with new password
+  const errEl = document.getElementById('rp-err');
+  if (errEl) {
+    errEl.style.color = 'var(--gold)';
+    errEl.textContent = 'Password recovery cannot be verified by email in this local-only build. No password has been changed.';
   }
-  // If no stored creds (old install), just proceed — data is already on device
-  BRUTE.reset();
-  _armSessionTimer();
-  uflLaunchApp(null);
 }
 
 // ── SKIP (Continue without account) ────────────────────────
@@ -22647,8 +22698,7 @@ async function submitPasswordChange() {
   showToast('✅ Password updated successfully', 'success');
 }
 function sendPinReset() {
-  _closeModal('modal-changepw');
-  showToast('📧 PIN reset email sent to your registered address','success');
+  showToast('PIN reset email is not connected. No email was sent and your PIN was not changed.', 'warn');
 }
 
 /* ── 2. DELETE ACCOUNT MODAL ── */
@@ -22656,38 +22706,54 @@ function openDeleteAccountModal() {
   var body = '<div style="text-align:center;margin-bottom:16px;">'
     + '<div style="font-size:36px;margin-bottom:8px;">⚠️</div>'
     + '<div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:6px;">This cannot be undone</div>'
-    + '<p style="font-size:12px;color:var(--textdim);line-height:1.7;">Deleting your account will permanently erase all your transactions, assets, settings and goals. A 30-day grace period applies before final deletion.</p></div>'
+    + '<p style="font-size:12px;color:var(--textdim);line-height:1.7;">FinanceOS has no online account in this build. This permanently removes the financial records and local profile stored in this browser. Export a backup before continuing.</p></div>'
     + '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:12px;padding:14px;">'
-    + '<label style="font-size:11px;color:var(--red);font-weight:700;display:block;margin-bottom:6px;">TYPE "DELETE" TO CONFIRM</label>'
+    + '<label style="font-size:11px;color:var(--red);font-weight:700;display:block;margin-bottom:6px;">TYPE "DELETE" TO CONFIRM LOCAL DATA REMOVAL</label>'
     + '<input type="text" id="deleteConfirmInput" class="form-input" placeholder="DELETE" oninput="var b=document.getElementById(\'deleteConfirmBtn\');b.disabled=this.value!==\'DELETE\';b.style.opacity=this.value===\'DELETE\'?\'1\':\'0.5\';b.style.cursor=this.value===\'DELETE\'?\'pointer\':\'not-allowed\';" style="border-color:rgba(248,113,113,.3);"/></div>';
   var footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-deleteaccount\')">Cancel</button>'
-    + '<button id="deleteConfirmBtn" class="btn-primary" style="flex:2;background:rgba(248,113,113,.2);border-color:rgba(248,113,113,.5);color:var(--red);opacity:.5;cursor:not-allowed;" disabled onclick="confirmAccountDeletion()">Delete My Account</button>';
+    + '<button id="deleteConfirmBtn" class="btn-primary" style="flex:2;background:rgba(248,113,113,.2);border-color:rgba(248,113,113,.5);color:var(--red);opacity:.5;cursor:not-allowed;" disabled onclick="confirmAccountDeletion()">Delete Local Data</button>';
   _modal('modal-deleteaccount', '🗑 Delete Account', body, footer, 'var(--red)');
 }
-function confirmAccountDeletion() {
+async function confirmAccountDeletion() {
+  const confirmation = document.getElementById('deleteConfirmInput');
+  if (!confirmation || confirmation.value !== 'DELETE') {
+    showToast('Type DELETE to confirm local data removal.', 'warn');
+    return;
+  }
+
+  try { await DB.clear(); } catch(error) { console.warn('Primary local data cleanup failed:', error); }
+  try { if (typeof AUTH !== 'undefined') AUTH.clear(); } catch(error) {}
+  try { if (typeof BRUTE !== 'undefined') BRUTE.reset(); } catch(error) {}
+
+  const extraKeys = new Set(['assetGrowthHx', 'nwHistory', 'alm_learning', 'fpLastSnap']);
+  try {
+    for (let index = localStorage.length - 1; index >= 0; index--) {
+      const key = localStorage.key(index);
+      if (key && (/^(fos_|finOS_|financeOS_)/i.test(key) || key === '_fos_sk' || extraKeys.has(key))) {
+        localStorage.removeItem(key);
+      }
+    }
+    for (let index = sessionStorage.length - 1; index >= 0; index--) {
+      const key = sessionStorage.key(index);
+      if (key && (/^fos_/i.test(key) || key === '_fos_sk')) sessionStorage.removeItem(key);
+    }
+  } catch(error) {
+    console.warn('Additional local data cleanup failed:', error);
+  }
+
   _closeModal('modal-deleteaccount');
-  showToast('⚠️ Account deletion scheduled — 30-day grace period begins now','info');
+  showToast('FinanceOS local data was removed from this browser.', 'success');
+  setTimeout(() => location.reload(), 1200);
 }
 
 /* ── 3. REVOKE DEVICE SESSION ── */
-function revokeDeviceSession(btn) {
-  var row = btn.parentElement;
-  while (row && !row.style.borderRadius) row = row.parentElement;
-  if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
-  btn.textContent = 'Revoked';
-  btn.style.color = 'var(--textdim)';
-  btn.style.borderColor = 'var(--border)';
-  showToast('🔒 Session revoked — device signed out','info');
+function revokeDeviceSession() {
+  showToast('Remote device revocation requires cloud sessions. FinanceOS is local-only in this build, so no remote session was changed.', 'warn');
 }
 
 /* ── 4. HELP CENTER (opens AI Advisor with FAQ prompt) ── */
 function openHelpCenter() {
-  navigateTo('advisor');
-  setTimeout(function() {
-    var inp = document.getElementById('chatInput') || document.querySelector('[id*="chat"][id*="nput"]');
-    if (inp) { inp.value = 'Show me frequently asked questions and how to use FinanceOS.'; inp.dispatchEvent(new Event('input')); }
-    showToast('💬 AI Help Center ready — ask anything!','info');
-  }, 400);
+  showToast('The AI Help Center is not connected yet. No AI request was sent. Use the app sections and backup tools for now.', 'warn');
 }
 
 /* ── 5. CALL SUPPORT MODAL ── */
@@ -22695,8 +22761,8 @@ function openCallSupportModal() {
   var body = '<div style="text-align:center;padding:10px 0 4px;">'
     + '<div style="font-size:40px;margin-bottom:12px;">📞</div>'
     + '<div style="font-size:16px;font-weight:700;margin-bottom:4px;">Support Line</div>'
-    + '<div style="font-size:12px;color:var(--textdim);margin-bottom:16px;">For urgent issues, reach us via email. In-app AI Advisor can resolve most questions instantly.</div>'
-    + '<div style="padding:14px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:12px;font-size:12px;color:var(--textmid);">💬 Fastest support: use the <strong>Email Support</strong> or <strong>AI Help Center</strong> below. Response within 24 hours.</div></div>';
+    + '<div style="font-size:12px;color:var(--textdim);margin-bottom:16px;">For support, use the external email option shown below. The in-app AI service is not connected in this build.</div>'
+    + '<div style="padding:14px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:12px;font-size:12px;color:var(--textmid);">💬 Use the <strong>Email Support</strong> option below. FinanceOS does not currently provide in-app AI support or a guaranteed response time.</div></div>';
   var footer = '<button class="btn-ghost" style="flex:1;" onclick="_closeModal(\'modal-call\')">Close</button>'
     + '<button class="btn-primary" style="flex:2;" onclick="_closeModal(\'modal-call\');openEmailSupportModal()">✉️ Email Support</button>';
   _modal('modal-call', '📞 Contact Support', body, footer, 'var(--blue)');
@@ -22925,10 +22991,10 @@ function confirmBetaJoin() {
 
 /* ── 11. LEGAL POLICY MODALS ── */
 var _policies = {
-  privacy:{ title:'🔒 Privacy Policy', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">What stays on your device:</strong> All transactions, goals, settings, and account data are stored locally in your browser\'s IndexedDB. This data is never sent to FinanceOS servers.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">What leaves your device:</strong> When you use any AI feature — AI Advisor chat, bank statement analysis, Freedom GPS, Business Analyzer — a summary of your financial context (amounts, categories, dates) is sent to Anthropic\'s Claude API to generate a response. This is processed under Anthropic\'s privacy policy. No data is shared with any other third party. We do not sell your data.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;">You can use FinanceOS without ever triggering an AI call — all tracking, calculations, and charts work fully offline. Cloud sync is not currently active.</p>' },
-  terms:  { title:'📋 Terms of Service', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;">By using FinanceOS you agree to use the app for personal finance management only. You are responsible for the accuracy of data you enter.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">No financial advice:</strong> FinanceOS provides planning tools and AI-generated suggestions for awareness purposes only. Nothing in this app constitutes certified financial, tax, or investment advice. Always consult a qualified professional for significant financial decisions.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;">We reserve the right to update these terms with 30 days\' notice.</p>' },
-  cookies:{ title:'🍪 Cookie Policy', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;">FinanceOS uses <strong style="color:var(--text);">localStorage</strong> only for session state (theme preference, onboarding status). No HTTP cookies, advertising trackers, or cross-site tracking scripts are loaded.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;">Your financial data is stored in IndexedDB — separate from cookies and unaffected by clearing browser cookies. To delete all app data, use Settings → Data → Delete Account.</p>' },
-  security:{ title:'🛡 Security Policy', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">Local data:</strong> Your transactions, goals, and settings live in browser IndexedDB on your device. They are not encrypted at rest — browser storage has no native encryption layer. The security of this data depends on your device\'s own security (screen lock, disk encryption, browser profile isolation).</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">AI features:</strong> When you use any AI feature, a financial summary is transmitted to Anthropic\'s API over HTTPS (TLS 1.3). Anthropic\'s infrastructure handles that data under their security and privacy policies. No API key or authentication credentials are stored in the app.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;"><strong style="color:var(--text);">Exports:</strong> JSON/CSV export files are unencrypted plaintext. Store them safely — treat them like a bank statement.</p>' },
+  privacy:{ title:'🔒 Privacy Policy', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">What stays on your device:</strong> All transactions, goals, settings, and account data are stored locally in your browser\'s IndexedDB. This data is never sent to FinanceOS servers.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">What leaves your device:</strong> AI requests are currently disabled. FinanceOS does not send your transactions, balances, or financial summaries to an AI provider. Cloud sync and online account services are not connected. Export files are created locally by your browser.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;">Tracking, calculations, projections, and charts run in the browser. The app still loads some third-party presentation libraries and fonts, but financial records are not sent to those services.</p>' },
+  terms:  { title:'📋 Terms of Service', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;">By using FinanceOS you agree to use the app for personal finance management only. You are responsible for the accuracy of data you enter.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">No financial advice:</strong> FinanceOS provides planning tools and calculations for awareness purposes only. AI-generated suggestions are currently unavailable. Nothing in this app constitutes certified financial, tax, or investment advice. Always consult a qualified professional for significant financial decisions.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;">We reserve the right to update these terms with 30 days\' notice.</p>' },
+  cookies:{ title:'🍪 Cookie Policy', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;">FinanceOS uses <strong style="color:var(--text);">IndexedDB and localStorage</strong> to store financial records, settings, and local profile state. No HTTP cookies, advertising trackers, or cross-site tracking scripts are used for this storage.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;">Your financial data is stored in IndexedDB and localStorage. Clearing browser cookies alone may not delete it. Use the local-data deletion action in Settings to remove FinanceOS data from this browser.</p>' },
+  security:{ title:'🛡 Security Policy', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">Local data:</strong> Your transactions, goals, and settings live in browser IndexedDB and localStorage. The legacy VAULT layer uses reversible XOR obfuscation; it is not encryption and does not protect records from someone who can inspect or execute code in the browser. Protect the device and keep encrypted device backups.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;"><strong style="color:var(--text);">AI features:</strong> AI requests are disabled in this build. No financial data is sent to an AI provider. A protected server-side integration and authentication controls are required before AI can be enabled.</p><p style="font-size:12px;color:var(--textdim);line-height:1.8;"><strong style="color:var(--text);">Exports:</strong> JSON/CSV export files are unencrypted plaintext. Store them safely — treat them like a bank statement.</p>' },
   regulatory:{ title:'🏛 Regulatory Disclosures', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;">FinanceOS is a personal finance management tool — not a licensed bank, broker-dealer, or investment adviser. Content within the app does not constitute financial advice. We comply with applicable data protection regulations including GDPR and CCPA.</p>' },
   licenses:{ title:'📄 Open Source Licenses', body:'<p style="font-size:12px;color:var(--textdim);line-height:1.8;margin-bottom:10px;">FinanceOS uses the following open-source libraries:</p><ul style="font-size:12px;color:var(--textdim);line-height:2;padding-left:18px;"><li>Chart.js — MIT License</li><li>Bricolage Grotesque — SIL Open Font License</li><li>DM Sans — SIL Open Font License</li><li>Lucide Icons — ISC License</li></ul>' },
 };
@@ -23229,7 +23295,7 @@ window.addEventListener('resize',   closeRowMenu);
     var prompt = 'You are a financial thinking coach. Review these 24 answers and give a focused verdict.\n\nDECISION: '+( a.name||'Unnamed')+'\n\nAPP DATA: Income '+c.income+' | Expenses '+c.expenses+' | Surplus '+c.surplus+' | Savings rate '+c.sr+' | Top spend: '+c.topspend+' | Debt: '+c.debt+'\n\nWHO: benefits='+( a.who_benefits||'—')+' | affected='+( a.who_affected||'—')+' | missing='+( a.who_missing||'—')+' | solved='+( a.who_solved||'—')+'\nWHAT: solve='+(a.what_solve||'—')+' | facts='+(a.what_facts||'—')+' | assuming='+(a.what_assuming||'—')+' | missing='+(a.what_missing||'—')+'\nWHEN: problem='+(a.when_problem||'—')+' | deadline='+(a.when_deadline||'—')+' | before='+(a.when_before||'—')+' | wrong='+(a.when_wrong||'—')+'\nWHERE: from='+(a.where_from||'—')+' | leads='+(a.where_leads||'—')+' | problems='+(a.where_problems||'—')+' | clarity='+(a.where_clarity||'—')+'\nWHY: matters='+(a.why_matters||'—')+' | believe='+(a.why_believe||'—')+' | different='+(a.why_different||'—')+' | unsolved='+(a.why_unsolved||'—')+'\nHOW: success='+(a.how_success||'—')+' | wrong='+(a.how_wrong||'—')+' | test='+(a.how_test||'—')+' | explain='+(a.how_explain||'—')+'\n\nRespond in EXACTLY this format:\nVERDICT: [PROCEED or PAUSE or STOP]\nSCORES: WHO:[1-10] WHAT:[1-10] WHEN:[1-10] WHERE:[1-10] WHY:[1-10] HOW:[1-10]\nSUMMARY: [2-3 sentences]\nBLIND SPOT: [1 sentence]\nNEXT ACTION: [1 concrete step]';
 
     try {
-      var res = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers: aiHeaders(),body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:prompt}]})});
+      var res = await financeOSAIRequest({method:'POST',headers: aiHeaders(),body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:prompt}]})});
       var data = await res.json();
       var reply = (data.content&&data.content[0]&&data.content[0].text)||'';
       var vm = reply.match(/VERDICT:\s*(PROCEED|PAUSE|STOP)/i);
@@ -26480,40 +26546,40 @@ function v42RenderForecast() {
 function exportTransactionsCSV() {
   try {
     const txArr = typeof transactions !== 'undefined' ? transactions : [];
-    const cur   = (typeof SETTINGS !== 'undefined' ? SETTINGS.currency : '') || 'RWF';
-    const CATS  = typeof window.CATS !== 'undefined' ? window.CATS : {};
-
-    const header = ['Date','Description','Type','Amount (' + cur + ')','Category','Notes'];
-    const rows   = [...txArr]
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .map(t => {
-        const cat = CATS[t.cat] ? CATS[t.cat].label : (t.cat || '');
-        const desc = (t.desc || '').replace(/"/g, '""');
-        const note = (t.note || t.notes || '').replace(/"/g, '""');
+    const currency = (typeof SETTINGS !== 'undefined' ? SETTINGS.currency : '') || 'RWF';
+    const categoryMap = typeof window.CATS !== 'undefined' ? window.CATS : {};
+    const escapeCsv = value => '"' + String(value === null || value === undefined ? '' : value).replace(/"/g, '""') + '"';
+    const headers = ['Date', 'Description', 'Type', 'Amount (' + currency + ')', 'Category', 'Notes'];
+    const rows = [...txArr]
+      .sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .map(tx => {
+        const category = categoryMap[tx.cat] ? categoryMap[tx.cat].label : (tx.cat || '');
+        const isTransfer = FinanceOSCore.TRANSFER_CATEGORIES.includes(String(tx.cat || '').toLowerCase());
+        const type = isTransfer ? 'Transfer' : (tx.type === 'income' ? 'Income' : 'Expense');
+        const amount = tx.type === 'income' ? Math.abs(Number(tx.amount) || 0) : -Math.abs(Number(tx.amount) || 0);
         return [
-          t.date,
-          `"${desc}"`,
-          t.type === 'income' ? 'Income' : 'Expense',
-          t.type === 'income' ? t.amount : -t.amount,
-          cat,
-          `"${note}"`,
-        ].join(',');
+          tx.date || '',
+          tx.desc || '',
+          type,
+          amount,
+          category,
+          tx.note || tx.notes || '',
+        ].map(escapeCsv).join(',');
       });
 
-    const csv  = [header.join(','), ...rows].join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    const date = new Date().toISOString().slice(0, 10);
-    a.href     = url;
-    a.download = `FinanceOS_transactions_${date}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const csv = [headers.map(escapeCsv).join(','), ...rows].join('\r\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'FinanceOS_transactions_' + FinanceOSCore.localDateISO(new Date()) + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    if (typeof showToast === 'function') showToast(`✅ ${txArr.length} transactions exported as CSV`, 'success');
-  } catch(e) {
-    if (typeof showToast === 'function') showToast('❌ CSV export failed — ' + (e.message || e), 'warn');
+    if (typeof showToast === 'function') showToast(txArr.length + ' transactions exported as CSV', 'success');
+  } catch(error) {
+    if (typeof showToast === 'function') showToast('CSV export failed — ' + (error.message || error), 'warn');
   }
 }
 

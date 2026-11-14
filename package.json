@@ -1,0 +1,12 @@
+{
+  "name": "financeos",
+  "version": "51.0.0",
+  "private": true,
+  "description": "Browser-first personal finance command center",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
